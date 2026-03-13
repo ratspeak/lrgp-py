@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lrgp"
+version = "0.2.0"
+description = "Lightweight Reticulum Gaming Protocol — multiplayer games over LXMF mesh networks"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.8"
+dependencies = []
+
+[project.optional-dependencies]
+rns = ["rns>=1.0", "lxmf>=0.9"]
+dev = ["pytest", "pytest-cov"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
