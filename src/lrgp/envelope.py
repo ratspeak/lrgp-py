@@ -1,9 +1,12 @@
 """LRGP envelope packing, unpacking, and validation."""
 
+import os
+
 from .constants import (
     FIELD_CUSTOM_TYPE, FIELD_CUSTOM_META, PROTOCOL_TYPE, LEGACY_TYPES,
     ENVELOPE_MAX_PACKED, OPPORTUNISTIC_MAX_CONTENT,
-    KEY_APP, KEY_COMMAND, KEY_SESSION, KEY_PAYLOAD,
+    KEY_APP, KEY_COMMAND, KEY_SESSION, KEY_PAYLOAD, KEY_NONCE,
+    NONCE_BYTES,
 )
 from .errors import EnvelopeTooLarge, InvalidEnvelope
 from ._msgpack import packb, unpackb
@@ -11,17 +14,34 @@ from ._msgpack import packb, unpackb
 _REQUIRED_KEYS = {KEY_APP, KEY_COMMAND, KEY_SESSION, KEY_PAYLOAD}
 
 
-def pack_envelope(app_id, version, command, session_id, payload=None):
+def generate_nonce():
+    """Return an 8-byte random nonce suitable for KEY_NONCE."""
+    return os.urandom(NONCE_BYTES)
+
+
+def pack_envelope(app_id, version, command, session_id, payload=None, nonce=None):
     """Build an LRGP envelope dict.
 
+    Args:
+        nonce: optional 8-byte bytes object. If ``None`` (default) a fresh
+            CSPRNG nonce is generated. Pass a fixed value to build
+            deterministic test vectors.
+
     Returns:
-        dict with keys "a", "c", "s", "p".
+        dict with keys "a", "c", "s", "p", "n".
     """
+    if nonce is None:
+        nonce = generate_nonce()
+    elif not isinstance(nonce, (bytes, bytearray)) or len(nonce) != NONCE_BYTES:
+        raise InvalidEnvelope(
+            "nonce must be {}-byte bytes; got {!r}".format(NONCE_BYTES, nonce)
+        )
     return {
         KEY_APP: "{}.{}".format(app_id, version),
         KEY_COMMAND: command,
         KEY_SESSION: session_id,
         KEY_PAYLOAD: payload if payload is not None else {},
+        KEY_NONCE: bytes(nonce),
     }
 
 
@@ -84,6 +104,16 @@ def unpack_envelope(fields):
     app_ver = envelope[KEY_APP]
     if not isinstance(app_ver, str) or "." not in app_ver:
         raise InvalidEnvelope("Invalid app.version format: {!r}".format(app_ver))
+
+    # Validate the nonce if present; absence is accepted for backward
+    # compatibility with pre-nonce peers (the caller's dedup layer logs
+    # these once per session).
+    if KEY_NONCE in envelope:
+        n = envelope[KEY_NONCE]
+        if not isinstance(n, (bytes, bytearray)) or len(n) != NONCE_BYTES:
+            raise InvalidEnvelope(
+                "KEY_NONCE must be {}-byte bytes; got {!r}".format(NONCE_BYTES, n)
+            )
 
     return envelope
 

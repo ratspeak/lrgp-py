@@ -1,13 +1,15 @@
-"""Tests for RLAP envelope packing, unpacking, and validation."""
+"""Tests for LRGP envelope packing, unpacking, and validation."""
 
 import pytest
 from lrgp.envelope import (
     pack_envelope, validate_envelope_size, pack_lxmf_fields,
     unpack_envelope, parse_app_version, measure_content_size,
+    generate_nonce,
 )
 from lrgp.constants import (
     FIELD_CUSTOM_TYPE, FIELD_CUSTOM_META, PROTOCOL_TYPE,
     ENVELOPE_MAX_PACKED, OPPORTUNISTIC_MAX_CONTENT,
+    KEY_NONCE, NONCE_BYTES,
 )
 from lrgp.errors import EnvelopeTooLarge, InvalidEnvelope
 from lrgp._msgpack import packb, unpackb
@@ -29,6 +31,41 @@ class TestPackEnvelope:
     def test_none_payload_becomes_empty_dict(self):
         env = pack_envelope("ttt", 1, "challenge", "abc123")
         assert env["p"] == {}
+
+    def test_auto_nonce_is_bytes_of_correct_length(self):
+        env = pack_envelope("ttt", 1, "challenge", "abc123")
+        assert isinstance(env[KEY_NONCE], bytes)
+        assert len(env[KEY_NONCE]) == NONCE_BYTES
+
+    def test_auto_nonces_differ_between_envelopes(self):
+        a = pack_envelope("ttt", 1, "move", "s1", {})
+        b = pack_envelope("ttt", 1, "move", "s1", {})
+        assert a[KEY_NONCE] != b[KEY_NONCE]
+
+    def test_explicit_nonce_round_trips(self):
+        fixed = b"\x00\x01\x02\x03\x04\x05\x06\x07"
+        env = pack_envelope("ttt", 1, "move", "s1", {}, nonce=fixed)
+        assert env[KEY_NONCE] == fixed
+
+    def test_wrong_length_nonce_raises(self):
+        with pytest.raises(InvalidEnvelope):
+            pack_envelope("ttt", 1, "move", "s1", {}, nonce=b"short")
+
+    def test_wrong_type_nonce_raises(self):
+        with pytest.raises(InvalidEnvelope):
+            pack_envelope("ttt", 1, "move", "s1", {}, nonce="not-bytes")
+
+
+class TestGenerateNonce:
+    def test_length(self):
+        assert len(generate_nonce()) == NONCE_BYTES
+
+    def test_entropy_across_many_calls(self):
+        # 1000 nonces at 64 bits should never collide in practice; the
+        # birthday bound lands below 2^-40. A collision here means the
+        # CSPRNG is broken, not flaky tests.
+        seen = {generate_nonce() for _ in range(1000)}
+        assert len(seen) == 1000
 
 
 class TestValidateEnvelopeSize:
@@ -83,6 +120,40 @@ class TestUnpackEnvelope:
         fields = {
             FIELD_CUSTOM_TYPE: PROTOCOL_TYPE,
             FIELD_CUSTOM_META: "not a dict",
+        }
+        with pytest.raises(InvalidEnvelope):
+            unpack_envelope(fields)
+
+    def test_legacy_envelope_without_nonce_accepted(self):
+        # Pre-nonce peers don't include the ``n`` field. Receivers must
+        # treat them as valid envelopes; dedup protection simply doesn't
+        # kick in for their messages.
+        fields = {
+            FIELD_CUSTOM_TYPE: PROTOCOL_TYPE,
+            FIELD_CUSTOM_META: {"a": "ttt.1", "c": "move", "s": "abc", "p": {}},
+        }
+        result = unpack_envelope(fields)
+        assert result is not None
+        assert KEY_NONCE not in result
+
+    def test_malformed_nonce_wrong_length_raises(self):
+        fields = {
+            FIELD_CUSTOM_TYPE: PROTOCOL_TYPE,
+            FIELD_CUSTOM_META: {
+                "a": "ttt.1", "c": "move", "s": "abc", "p": {},
+                KEY_NONCE: b"short",
+            },
+        }
+        with pytest.raises(InvalidEnvelope):
+            unpack_envelope(fields)
+
+    def test_malformed_nonce_wrong_type_raises(self):
+        fields = {
+            FIELD_CUSTOM_TYPE: PROTOCOL_TYPE,
+            FIELD_CUSTOM_META: {
+                "a": "ttt.1", "c": "move", "s": "abc", "p": {},
+                KEY_NONCE: "not-bytes",
+            },
         }
         with pytest.raises(InvalidEnvelope):
             unpack_envelope(fields)

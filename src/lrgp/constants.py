@@ -64,6 +64,12 @@ KEY_APP = "a"
 KEY_COMMAND = "c"
 KEY_SESSION = "s"
 KEY_PAYLOAD = "p"
+KEY_NONCE = "n"  # optional 8-byte per-envelope replay-dedup nonce
+
+# Nonce / dedup
+NONCE_BYTES = 8
+DEDUP_CACHE_PER_SESSION = 512
+DEDUP_TTL_SECONDS = 600
 
 # Error payload keys
 KEY_ERR_CODE = "code"
