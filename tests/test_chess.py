@@ -287,6 +287,63 @@ class TestTerminalClaimValidation:
         assert wire[KEY_PLY] == 0
 
 
+class TestDrawClaims:
+    """T1-13: a draw_offer carrying a valid 3fr/50m reason is a FIDE claim —
+    it ends the game without acceptance (canonical per SPEC; mirrors
+    lrgp-rs). Invalid claims degrade to plain offers."""
+
+    # Knight shuffle ×2: the starting position occurs a third time.
+    THREEFOLD_MOVES = [
+        "b1c3", "b8c6", "c3b1", "c6b8",
+        "b1c3", "b8c6", "c3b1", "c6b8",
+    ]
+
+    def _setup_threefold(self, app, identity):
+        app.handle_incoming(SESSION, CMD_CHALLENGE, {}, PLAYER_A, identity)
+        app.handle_incoming(SESSION, CMD_ACCEPT, {KEY_WHITE: PLAYER_A}, PLAYER_B, identity)
+        for ply, uci in enumerate(self.THREEFOLD_MOVES):
+            sender = PLAYER_A if ply % 2 == 0 else PLAYER_B
+            result = app.handle_incoming(
+                SESSION, CMD_MOVE,
+                {KEY_MOVE: uci, KEY_PLY: ply, KEY_TERMINAL: "",
+                 KEY_REASON: "", KEY_WINNER: ""},
+                sender, identity,
+            )
+            assert result["error"] is None
+
+    def test_valid_threefold_claim_auto_accepts(self, app):
+        self._setup_threefold(app, PLAYER_B)
+        result = app.handle_incoming(
+            SESSION, CMD_DRAW_OFFER, {KEY_REASON: R_THREEFOLD}, PLAYER_A, PLAYER_B)
+        assert result["error"] is None
+        assert result["emit"]["type"] == "draw_claim"
+        s = app._get_session(SESSION, PLAYER_B)
+        assert s.status == STATUS_COMPLETED
+        assert s.metadata["terminal"] == "draw"
+        assert s.metadata["reason"] == R_THREEFOLD
+
+    def test_invalid_claim_degrades_to_offer(self, app):
+        app.handle_incoming(SESSION, CMD_CHALLENGE, {}, PLAYER_A, PLAYER_B)
+        app.handle_incoming(SESSION, CMD_ACCEPT, {KEY_WHITE: PLAYER_A}, PLAYER_B, PLAYER_B)
+        result = app.handle_incoming(
+            SESSION, CMD_DRAW_OFFER, {KEY_REASON: R_THREEFOLD}, PLAYER_A, PLAYER_B)
+        assert result["error"] is None
+        assert result["emit"]["type"] == "draw_offer"
+        s = app._get_session(SESSION, PLAYER_B)
+        assert s.metadata.get("terminal", "") == ""
+        assert s.metadata["draw_offered"] is True
+
+    def test_claim_out_preterminates_claimant(self, app):
+        self._setup_threefold(app, PLAYER_A)
+        wire, fallback = app.handle_outgoing(
+            SESSION, CMD_DRAW_OFFER, {KEY_REASON: R_THREEFOLD}, PLAYER_A)
+        assert wire == {KEY_REASON: R_THREEFOLD}
+        assert "threefold" in fallback.lower()
+        s = app._get_session(SESSION, PLAYER_A)
+        assert s.metadata["terminal"] == "draw"
+        assert s.metadata["reason"] == R_THREEFOLD
+
+
 class TestRenderFallback:
     def test_challenge_fallback(self, app):
         assert "Sent a challenge" in app.render_fallback(CMD_CHALLENGE, {})

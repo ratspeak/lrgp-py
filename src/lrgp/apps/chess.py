@@ -410,8 +410,28 @@ class ChessApp(GameBase):
         if session is None:
             return _err(ERR_PROTOCOL_ERROR, "Unknown session")
         meta = session.metadata
+        reason = _claim_str(payload or {}, KEY_REASON)
+
+        # draw_offer with a valid `r` is a FIDE claim (threefold / 50-move):
+        # verified locally, a valid claim ends the game without acceptance
+        # (canonical per SPEC; mirrors lrgp-rs). Invalid claims degrade to a
+        # plain draw offer.
+        if reason in (R_THREEFOLD, R_FIFTY_MOVE) and self._claim_is_valid(meta, reason):
+            meta["terminal"] = "draw"
+            meta["reason"] = reason
+            meta["draw_offered"] = False
+            meta["turn"] = ""
+            SessionStateMachine.apply_command(session, CMD_DRAW_ACCEPT, terminal=True)
+            session.unread = 1
+            self._save_session(session)
+            return {"session": session.to_dict(), "emit": {
+                "type": "draw_claim", "session_id": session_id,
+                "app_id": self.app_id, "from": sender_hash,
+                "reason": reason,
+            }, "error": None}
+
         meta["draw_offered"] = True
-        meta["draw_offer_reason"] = payload.get(KEY_REASON, "") if payload else ""
+        meta["draw_offer_reason"] = reason
         SessionStateMachine.apply_command(session, CMD_DRAW_OFFER)
         session.unread = 1
         self._save_session(session)
@@ -420,6 +440,14 @@ class ChessApp(GameBase):
             "app_id": self.app_id, "from": sender_hash,
             "reason": meta["draw_offer_reason"],
         }, "error": None}
+
+    @staticmethod
+    def _claim_is_valid(meta, reason):
+        try:
+            board = _replay_board(meta.get("moves", []))
+        except (ValueError, _chess.InvalidMoveError):
+            return False
+        return _claim_reason(board) == reason
 
     def _handle_draw_accept_in(self, session_id, sender_hash, identity_id):
         session = self._get_session(session_id, identity_id)
@@ -537,14 +565,27 @@ class ChessApp(GameBase):
         return {KEY_WINNER: meta["winner"]}, "[LRGP Chess] Resigned."
 
     def _handle_draw_offer_out(self, session_id, payload, identity_id):
-        reason = (payload or {}).get(KEY_REASON, "")
+        reason = _claim_str(payload or {}, KEY_REASON)
         session = self._get_session(session_id, identity_id)
         if session is not None:
-            session.metadata["draw_offered"] = True
-            session.metadata["draw_offer_reason"] = reason
-            SessionStateMachine.apply_command(session, CMD_DRAW_OFFER)
+            meta = session.metadata
+            # A valid claim pre-terminates locally so the claimant's state
+            # reflects the draw immediately (mirrors lrgp-rs).
+            if reason in (R_THREEFOLD, R_FIFTY_MOVE) and self._claim_is_valid(meta, reason):
+                meta["terminal"] = "draw"
+                meta["reason"] = reason
+                meta["turn"] = ""
+                SessionStateMachine.apply_command(session, CMD_DRAW_ACCEPT, terminal=True)
+            else:
+                meta["draw_offered"] = True
+                meta["draw_offer_reason"] = reason
+                SessionStateMachine.apply_command(session, CMD_DRAW_OFFER)
             self._save_session(session)
         wire = {KEY_REASON: reason} if reason else {}
+        if reason == R_THREEFOLD:
+            return wire, "[LRGP Chess] Claimed threefold repetition"
+        if reason == R_FIFTY_MOVE:
+            return wire, "[LRGP Chess] Claimed fifty-move rule"
         return wire, "[LRGP Chess] Offered a draw"
 
     def _handle_draw_accept_out(self, session_id, identity_id):
@@ -596,6 +637,19 @@ class ChessApp(GameBase):
 def _claim_str(payload, key):
     value = payload.get(key, "")
     return value if isinstance(value, str) else ""
+
+
+def _claim_reason(board):
+    """Valid FIDE draw-claim reason for the current position, or None.
+
+    Mirrors lrgp-rs claim_reason: raw halfmove clock for the fifty-move
+    rule, current position seen three times for repetition.
+    """
+    if board.halfmove_clock >= 100:
+        return R_FIFTY_MOVE
+    if board.is_repetition(3):
+        return R_THREEFOLD
+    return None
 
 
 def _check_terminal_claims(payload, terminal, reason, sender_hash):
