@@ -194,6 +194,99 @@ class TestSessionLifecycle:
         assert s.metadata["winner"] == PLAYER_B  # opponent of resigner
 
 
+class TestTerminalClaimValidation:
+    """T1-6: claimed x/r/w must be recomputed from the replayed board and
+    rejected on mismatch (mirrors lrgp-rs validate_move)."""
+
+    def _setup_active(self, app, identity=PLAYER_B):
+        app.handle_incoming(SESSION, CMD_CHALLENGE, {}, PLAYER_A, identity)
+        app.handle_incoming(SESSION, CMD_ACCEPT, {KEY_WHITE: PLAYER_A}, PLAYER_B, identity)
+
+    def _move(self, uci, ply, terminal="", reason="", winner=""):
+        return {
+            KEY_MOVE: uci, KEY_PLY: ply,
+            KEY_TERMINAL: terminal, KEY_REASON: reason, KEY_WINNER: winner,
+        }
+
+    def test_forged_win_on_legal_move_rejected(self, app):
+        self._setup_active(app)
+        result = app.handle_incoming(
+            SESSION, CMD_MOVE,
+            self._move("e2e4", 0, terminal="win", reason=R_CHECKMATE, winner=PLAYER_A),
+            PLAYER_A, PLAYER_B,
+        )
+        assert result["error"] is not None
+        s = app._get_session(SESSION, PLAYER_B)
+        assert s.metadata.get("terminal", "") == ""
+        assert s.metadata.get("winner", "") == ""
+        assert s.metadata.get("moves", []) == []
+        assert s.status == STATUS_ACTIVE
+
+    def test_forged_winner_on_real_checkmate_rejected(self, app):
+        # Fool's mate, but the mating move claims the LOSER as winner.
+        self._setup_active(app)
+        for ply, (uci, sender) in enumerate(
+            [("f2f3", PLAYER_A), ("e7e5", PLAYER_B), ("g2g4", PLAYER_A)]
+        ):
+            result = app.handle_incoming(
+                SESSION, CMD_MOVE, self._move(uci, ply), sender, PLAYER_B)
+            assert result["error"] is None
+        result = app.handle_incoming(
+            SESSION, CMD_MOVE,
+            self._move("d8h4", 3, terminal="win", reason=R_CHECKMATE, winner=PLAYER_A),
+            PLAYER_B, PLAYER_B,
+        )
+        assert result["error"] is not None
+
+    def test_genuine_checkmate_claims_accepted(self, app):
+        self._setup_active(app)
+        for ply, (uci, sender) in enumerate(
+            [("f2f3", PLAYER_A), ("e7e5", PLAYER_B), ("g2g4", PLAYER_A)]
+        ):
+            result = app.handle_incoming(
+                SESSION, CMD_MOVE, self._move(uci, ply), sender, PLAYER_B)
+            assert result["error"] is None
+        result = app.handle_incoming(
+            SESSION, CMD_MOVE,
+            self._move("d8h4", 3, terminal="win", reason=R_CHECKMATE, winner=PLAYER_B),
+            PLAYER_B, PLAYER_B,
+        )
+        assert result["error"] is None
+        s = app._get_session(SESSION, PLAYER_B)
+        assert s.status == STATUS_COMPLETED
+        assert s.metadata["terminal"] == "win"
+        assert s.metadata["winner"] == PLAYER_B
+
+    def test_validate_action_rejects_forged_terminal(self, app):
+        # validate_action resolves the session under the default identity.
+        self._setup_active(app, identity="")
+        ok, err = app.validate_action(
+            SESSION, CMD_MOVE,
+            self._move("e2e4", 0, terminal="win", reason=R_CHECKMATE, winner=PLAYER_A),
+            PLAYER_A,
+        )
+        assert not ok
+        assert "Terminal mismatch" in err
+
+    def test_validate_action_rejects_wrong_ply(self, app):
+        # T1-5: `n` is 0-based; the next move's ply equals len(moves).
+        self._setup_active(app, identity="")
+        ok, err = app.validate_action(
+            SESSION, CMD_MOVE, self._move("e2e4", 1), PLAYER_A)
+        assert not ok
+        assert "Ply mismatch" in err
+        ok, err = app.validate_action(
+            SESSION, CMD_MOVE, self._move("e2e4", 0), PLAYER_A)
+        assert ok, err
+
+    def test_first_move_out_emits_zero_based_ply(self, app):
+        # T1-5 vector consistency: first move on the wire carries n=0,
+        # matching the shared chess_move.bin fixture.
+        self._setup_active(app, identity=PLAYER_A)
+        wire, _ = app.handle_outgoing(SESSION, CMD_MOVE, {KEY_MOVE: "e2e4"}, PLAYER_A)
+        assert wire[KEY_PLY] == 0
+
+
 class TestRenderFallback:
     def test_challenge_fallback(self, app):
         assert "Sent a challenge" in app.render_fallback(CMD_CHALLENGE, {})

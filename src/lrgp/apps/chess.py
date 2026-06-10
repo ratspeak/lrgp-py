@@ -357,16 +357,14 @@ class ChessApp(GameBase):
 
         board.push(move)
         moves.append(uci)
-        terminal = payload.get(KEY_TERMINAL, "")
-        reason = payload.get(KEY_REASON, "")
-        winner = payload.get(KEY_WINNER, "")
 
-        auto_terminal, auto_reason = _detect_auto_terminal(board)
-        if auto_terminal and not terminal:
-            terminal = auto_terminal
-            reason = auto_reason
-            if terminal == "win":
-                winner = sender_hash
+        # Never trust claimed terminal state: recompute from the replayed
+        # board and reject mismatches (mirrors lrgp-rs validate_move).
+        terminal, reason = _detect_auto_terminal(board)
+        winner = sender_hash if terminal == "win" else ""
+        claim_error = _check_terminal_claims(payload, terminal, reason, sender_hash)
+        if claim_error is not None:
+            return _err(ERR_PROTOCOL_ERROR, claim_error)
 
         meta["winner"] = winner
         meta["terminal"] = terminal
@@ -569,6 +567,14 @@ class ChessApp(GameBase):
         uci = payload.get(KEY_MOVE)
         if not isinstance(uci, str):
             return False, "Missing move"
+
+        ply = payload.get(KEY_PLY, 0)
+        if isinstance(ply, bool) or not isinstance(ply, int):
+            ply = 0
+        expected_ply = len(meta.get("moves", []))
+        if ply != expected_ply:
+            return False, "Ply mismatch: expected {}, got {}".format(expected_ply, ply)
+
         try:
             board = _replay_board(meta.get("moves", []))
             move = board.parse_uci(uci)
@@ -576,7 +582,44 @@ class ChessApp(GameBase):
             return False, "Invalid UCI"
         if move not in board.legal_moves:
             return False, "Illegal move"
+
+        # Recompute terminal state and reject forged claims (mirrors
+        # lrgp-rs validate_move).
+        board.push(move)
+        terminal, reason = _detect_auto_terminal(board)
+        claim_error = _check_terminal_claims(payload, terminal, reason, sender_hash)
+        if claim_error is not None:
+            return False, claim_error
         return True, None
+
+
+def _claim_str(payload, key):
+    value = payload.get(key, "")
+    return value if isinstance(value, str) else ""
+
+
+def _check_terminal_claims(payload, terminal, reason, sender_hash):
+    """Compare claimed x/r/w against the recomputed terminal state.
+
+    Returns an error message on mismatch, else None. Matches lrgp-rs:
+    the claimed terminal must equal the computed one, a terminal move's
+    claimed reason must match, and a win's claimed winner must be the
+    sender.
+    """
+    claimed_terminal = _claim_str(payload, KEY_TERMINAL)
+    claimed_reason = _claim_str(payload, KEY_REASON)
+    claimed_winner = _claim_str(payload, KEY_WINNER)
+
+    if claimed_terminal != terminal:
+        return "Terminal mismatch: computed='{}' claimed='{}'".format(
+            terminal, claimed_terminal)
+    if terminal and claimed_reason != reason:
+        return "Reason mismatch: computed='{}' claimed='{}'".format(
+            reason, claimed_reason)
+    if terminal == "win" and claimed_winner != sender_hash:
+        return "Winner mismatch: computed='{}' claimed='{}'".format(
+            sender_hash, claimed_winner)
+    return None
 
 
 def _err(code, msg):
