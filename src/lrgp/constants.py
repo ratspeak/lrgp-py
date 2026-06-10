@@ -63,7 +63,7 @@ KEY_APP = "a"
 KEY_COMMAND = "c"
 KEY_SESSION = "s"
 KEY_PAYLOAD = "p"
-KEY_NONCE = "n"  # optional 8-byte per-envelope replay-dedup nonce
+KEY_NONCE = "n"  # required 8-byte per-envelope replay-dedup nonce
 
 # Nonce / dedup
 NONCE_BYTES = 8

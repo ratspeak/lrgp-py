@@ -21,3 +21,6 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Resolve the in-repo package ahead of any installed copy so the suite
+# always tests this checkout.
+pythonpath = ["src"]
