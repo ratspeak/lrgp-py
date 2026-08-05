@@ -56,4 +56,4 @@ All payload keys are single characters. The worst-case envelope (error response 
 
 ## Fallback Text
 
-All fallback text uses the format `[RLAP TTT] <description>`. Non-RLAP clients display this as a regular message, so the game is partially visible even without app support.
+All fallback text uses the format `[LRGP TTT] <description>`. Non-LRGP clients display this as a regular message, so the game is partially visible even without app support.

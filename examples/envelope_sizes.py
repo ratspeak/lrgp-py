@@ -11,7 +11,7 @@ from lrgp._msgpack import packb
 from lrgp.envelope import pack_envelope, pack_lxmf_fields
 from lrgp.constants import ENVELOPE_MAX_PACKED, OPPORTUNISTIC_MAX_CONTENT
 
-SESSION_ID = "a1b2c3d4e5f6g7h8"
+SESSION_ID = "a1b2c3d4e5f60718"
 HASH_16 = "abcdef0123456789"
 
 

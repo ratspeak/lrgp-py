@@ -14,46 +14,48 @@ from lrgp.constants import (
 from lrgp.errors import EnvelopeTooLarge, InvalidEnvelope
 from lrgp._msgpack import packb, unpackb
 
+SESSION_ID = "0123456789abcdef"
+
 
 class TestPackEnvelope:
     def test_basic(self):
-        env = pack_envelope("ttt", 1, "challenge", "abc123", {})
+        env = pack_envelope("ttt", 1, "challenge", SESSION_ID, {})
         assert env["a"] == "ttt.1"
         assert env["c"] == "challenge"
-        assert env["s"] == "abc123"
+        assert env["s"] == SESSION_ID
         assert env["p"] == {}
 
     def test_with_payload(self):
-        env = pack_envelope("ttt", 1, "move", "abc123", {"i": 4, "b": "____X____"})
+        env = pack_envelope("ttt", 1, "move", SESSION_ID, {"i": 4, "b": "____X____"})
         assert env["p"]["i"] == 4
         assert env["p"]["b"] == "____X____"
 
     def test_none_payload_becomes_empty_dict(self):
-        env = pack_envelope("ttt", 1, "challenge", "abc123")
+        env = pack_envelope("ttt", 1, "challenge", SESSION_ID)
         assert env["p"] == {}
 
     def test_auto_nonce_is_bytes_of_correct_length(self):
-        env = pack_envelope("ttt", 1, "challenge", "abc123")
+        env = pack_envelope("ttt", 1, "challenge", SESSION_ID)
         assert isinstance(env[KEY_NONCE], bytes)
         assert len(env[KEY_NONCE]) == NONCE_BYTES
 
     def test_auto_nonces_differ_between_envelopes(self):
-        a = pack_envelope("ttt", 1, "move", "s1", {})
-        b = pack_envelope("ttt", 1, "move", "s1", {})
+        a = pack_envelope("ttt", 1, "move", SESSION_ID, {})
+        b = pack_envelope("ttt", 1, "move", SESSION_ID, {})
         assert a[KEY_NONCE] != b[KEY_NONCE]
 
     def test_explicit_nonce_round_trips(self):
         fixed = b"\x00\x01\x02\x03\x04\x05\x06\x07"
-        env = pack_envelope("ttt", 1, "move", "s1", {}, nonce=fixed)
+        env = pack_envelope("ttt", 1, "move", SESSION_ID, {}, nonce=fixed)
         assert env[KEY_NONCE] == fixed
 
     def test_wrong_length_nonce_raises(self):
         with pytest.raises(InvalidEnvelope):
-            pack_envelope("ttt", 1, "move", "s1", {}, nonce=b"short")
+            pack_envelope("ttt", 1, "move", SESSION_ID, {}, nonce=b"short")
 
     def test_wrong_type_nonce_raises(self):
         with pytest.raises(InvalidEnvelope):
-            pack_envelope("ttt", 1, "move", "s1", {}, nonce="not-bytes")
+            pack_envelope("ttt", 1, "move", SESSION_ID, {}, nonce="not-bytes")
 
 
 class TestGenerateNonce:
@@ -70,20 +72,19 @@ class TestGenerateNonce:
 
 class TestValidateEnvelopeSize:
     def test_small_envelope_passes(self):
-        env = pack_envelope("ttt", 1, "challenge", "a1b2c3d4e5f6g7h8", {})
+        env = pack_envelope("ttt", 1, "challenge", SESSION_ID, {})
         size = validate_envelope_size(env)
         assert size <= ENVELOPE_MAX_PACKED
 
     def test_oversized_envelope_raises(self):
-        env = pack_envelope("ttt", 1, "move", "a1b2c3d4e5f6g7h8",
-                            {"data": "x" * 300})
         with pytest.raises(EnvelopeTooLarge):
-            validate_envelope_size(env)
+            pack_envelope("ttt", 1, "move", SESSION_ID,
+                          {"data": "x" * 300})
 
 
 class TestPackLxmfFields:
     def test_fields_structure(self):
-        env = pack_envelope("ttt", 1, "challenge", "abc", {})
+        env = pack_envelope("ttt", 1, "challenge", SESSION_ID, {})
         fields = pack_lxmf_fields(env)
         assert fields[FIELD_CUSTOM_TYPE] == PROTOCOL_TYPE
         assert fields[FIELD_CUSTOM_META] == env
@@ -91,7 +92,7 @@ class TestPackLxmfFields:
 
 class TestUnpackEnvelope:
     def test_valid_rlap(self):
-        env = pack_envelope("ttt", 1, "move", "abc", {"i": 4})
+        env = pack_envelope("ttt", 1, "move", SESSION_ID, {"i": 4})
         fields = pack_lxmf_fields(env)
         result = unpack_envelope(fields)
         assert result == env
@@ -124,6 +125,16 @@ class TestUnpackEnvelope:
         with pytest.raises(InvalidEnvelope):
             unpack_envelope(fields)
 
+    def test_non_map_fields_raise_typed_error(self):
+        with pytest.raises(InvalidEnvelope):
+            unpack_envelope([])
+
+    def test_unencodable_payload_raises_typed_error(self):
+        with pytest.raises(InvalidEnvelope):
+            pack_envelope(
+                "ttt", 1, "move", SESSION_ID, {"value": object()}
+            )
+
     def test_envelope_without_nonce_rejected(self):
         # KEY_NONCE is a required envelope key; missing it is a protocol
         # violation that unpack_envelope must reject.
@@ -138,7 +149,7 @@ class TestUnpackEnvelope:
         fields = {
             FIELD_CUSTOM_TYPE: PROTOCOL_TYPE,
             FIELD_CUSTOM_META: {
-                "a": "ttt.1", "c": "move", "s": "abc", "p": {},
+                "a": "ttt.1", "c": "move", "s": SESSION_ID, "p": {},
                 KEY_NONCE: b"short",
             },
         }
@@ -149,7 +160,7 @@ class TestUnpackEnvelope:
         fields = {
             FIELD_CUSTOM_TYPE: PROTOCOL_TYPE,
             FIELD_CUSTOM_META: {
-                "a": "ttt.1", "c": "move", "s": "abc", "p": {},
+                "a": "ttt.1", "c": "move", "s": SESSION_ID, "p": {},
                 KEY_NONCE: "not-bytes",
             },
         }
@@ -167,14 +178,14 @@ class TestParseAppVersion:
 
 class TestRoundtrip:
     def test_msgpack_roundtrip(self):
-        env = pack_envelope("ttt", 1, "move", "a1b2c3d4e5f6g7h8",
+        env = pack_envelope("ttt", 1, "move", SESSION_ID,
                             {"i": 4, "b": "____X____", "n": 1})
         packed = packb(env)
         unpacked = unpackb(packed)
         assert unpacked == env
 
     def test_full_lxmf_roundtrip(self):
-        env = pack_envelope("ttt", 1, "challenge", "a1b2c3d4e5f6g7h8", {})
+        env = pack_envelope("ttt", 1, "challenge", SESSION_ID, {})
         fields = pack_lxmf_fields(env)
         # Simulate msgpack roundtrip of fields
         packed = packb(fields)

@@ -1,7 +1,6 @@
 """LRGP transport bridge for LXMF (optional, requires lrgp[rns])."""
 
-from .constants import FIELD_CUSTOM_TYPE, FIELD_CUSTOM_META, PROTOCOL_TYPE
-from .envelope import pack_lxmf_fields
+from .envelope import pack_lxmf_fields, unpack_envelope
 
 
 class LrgpTransport:
@@ -32,6 +31,9 @@ class LrgpTransport:
             delivery: "opportunistic" or "direct".
             title: optional LXMF title.
         """
+        if delivery not in ("opportunistic", "direct"):
+            raise ValueError("delivery must be 'opportunistic' or 'direct'")
+
         import RNS
         import LXMF
 
@@ -70,10 +72,18 @@ class LrgpTransport:
 
         def _on_message(lxm):
             fields = lxm.fields if hasattr(lxm, "fields") else {}
-            custom_type = fields.get(FIELD_CUSTOM_TYPE, "")
-            if custom_type == PROTOCOL_TYPE:
-                envelope = fields.get(FIELD_CUSTOM_META, {})
-                sender = lxm.source_hash.hex() if hasattr(lxm, "source_hash") else ""
+            envelope = unpack_envelope(fields)
+            if envelope is not None:
+                # ``source_hash`` is presentation data until LXMF has
+                # validated the message signature.  LRGP binds sessions to
+                # this identifier, so never hand an unverified value to the
+                # caller as an authenticated participant.
+                if getattr(lxm, "signature_validated", False) is not True:
+                    return
+                source_hash = getattr(lxm, "source_hash", None)
+                if not isinstance(source_hash, (bytes, bytearray)) or not source_hash:
+                    return
+                sender = bytes(source_hash).hex()
                 self._handler(envelope, sender, lxm)
 
         self._router.register_delivery_callback(_on_message)

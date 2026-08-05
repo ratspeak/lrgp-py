@@ -40,7 +40,12 @@ from ..constants import (
     STATUS_PENDING, STATUS_ACTIVE, STATUS_COMPLETED,
     CMD_CHALLENGE, CMD_ACCEPT, CMD_DECLINE, CMD_MOVE,
     CMD_RESIGN, CMD_DRAW_OFFER, CMD_DRAW_ACCEPT, CMD_DRAW_DECLINE,
-    CMD_ERROR, ERR_INVALID_MOVE, ERR_PROTOCOL_ERROR,
+    CMD_ERROR, ERR_INVALID_MOVE, ERR_NOT_YOUR_TURN, ERR_PROTOCOL_ERROR,
+    ERR_SESSION_EXPIRED,
+)
+from ..errors import (
+    IllegalTransition, OutgoingActionError, SessionExpired, SessionNotFound,
+    UnauthorizedPeer, UnsupportedAction, error_payload, incoming_error,
 )
 
 STARTING_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
@@ -101,20 +106,6 @@ def _legal_uci(board) -> list:
     return [m.uci() for m in board.legal_moves]
 
 
-def _claim_reason(board) -> Optional[str]:
-    """Return a 2-3 char reason if the side to move can claim a draw.
-
-    The threefold-repetition and fifty-move rules are claim-based per FIDE,
-    so a peer must explicitly send `draw_offer` with the reason. This helper
-    surfaces the available claim, never auto-applies it.
-    """
-    if board.can_claim_threefold_repetition():
-        return R_THREEFOLD
-    if board.can_claim_fifty_moves():
-        return R_FIFTY_MOVE
-    return None
-
-
 def _detect_auto_terminal(board):
     """Return (terminal, reason) for the post-move position, or ('', '')."""
     if board.is_checkmate():
@@ -140,6 +131,7 @@ def _initial_metadata(white_hash, black_hash, my_color):
         "terminal": "",
         "reason": "",
         "draw_offered": False,
+        "draw_offered_by": "",
         "draw_offer_reason": "",
     }
 
@@ -164,7 +156,7 @@ class ChessApp(GameBase):
     turn_timeout = None
     actions = [
         CMD_CHALLENGE, CMD_ACCEPT, CMD_DECLINE, CMD_MOVE, CMD_RESIGN,
-        CMD_DRAW_OFFER, CMD_DRAW_ACCEPT, CMD_DRAW_DECLINE,
+        CMD_DRAW_OFFER, CMD_DRAW_ACCEPT, CMD_DRAW_DECLINE, CMD_ERROR,
     ]
     preferred_delivery = {
         CMD_CHALLENGE: "opportunistic",
@@ -175,43 +167,79 @@ class ChessApp(GameBase):
         CMD_DRAW_OFFER: "opportunistic",
         CMD_DRAW_ACCEPT: "direct",
         CMD_DRAW_DECLINE: "direct",
+        CMD_ERROR: "opportunistic",
     }
     ttl = {"pending": 86400, "active": 604800}  # 1 day pending, 7 days active
 
     def __init__(self):
-        self._sessions = {}
-
-    def _get_session(self, session_id, identity_id=""):
-        return self._sessions.get((session_id, identity_id))
-
-    def _save_session(self, session):
-        self._sessions[(session.session_id, session.identity_id)] = session
+        super().__init__()
 
     # --- GameBase required methods ---
 
     def handle_incoming(self, session_id, command, payload, sender_hash, identity_id):
-        if command == CMD_CHALLENGE:
-            return self._handle_challenge_in(session_id, sender_hash, identity_id)
-        if command == CMD_ACCEPT:
-            return self._handle_accept_in(session_id, payload, sender_hash, identity_id)
-        if command == CMD_DECLINE:
-            return self._handle_decline_in(session_id, sender_hash, identity_id)
-        if command == CMD_MOVE:
-            return self._handle_move_in(session_id, payload, sender_hash, identity_id)
-        if command == CMD_RESIGN:
-            return self._handle_resign_in(session_id, sender_hash, identity_id)
-        if command == CMD_DRAW_OFFER:
-            return self._handle_draw_offer_in(session_id, payload, sender_hash, identity_id)
-        if command == CMD_DRAW_ACCEPT:
-            return self._handle_draw_accept_in(session_id, sender_hash, identity_id)
-        if command == CMD_DRAW_DECLINE:
-            return self._handle_draw_decline_in(session_id, sender_hash, identity_id)
-        if command == CMD_ERROR:
-            return {"session": None, "emit": None, "error": payload}
-        return {"session": None, "emit": None, "error": {
-            "code": ERR_PROTOCOL_ERROR,
-            "msg": "Unknown command: {}".format(command),
-        }}
+        payload_error = self._incoming_payload_error(command, payload)
+        if payload_error:
+            return incoming_error(
+                ERR_PROTOCOL_ERROR, payload_error, command,
+                self._get_session(session_id, identity_id),
+            )
+        try:
+            if command == CMD_CHALLENGE:
+                result = self._handle_challenge_in(
+                    session_id, sender_hash, identity_id
+                )
+            else:
+                session = self.require_live_session(session_id, identity_id)
+                if command == CMD_ACCEPT:
+                    result = self._handle_accept_in(
+                        session_id, payload, sender_hash, identity_id
+                    )
+                elif command == CMD_DECLINE:
+                    result = self._handle_decline_in(
+                        session_id, sender_hash, identity_id
+                    )
+                elif command == CMD_MOVE:
+                    result = self._handle_move_in(
+                        session_id, payload, sender_hash, identity_id
+                    )
+                elif command == CMD_RESIGN:
+                    result = self._handle_resign_in(
+                        session_id, sender_hash, identity_id
+                    )
+                elif command == CMD_DRAW_OFFER:
+                    result = self._handle_draw_offer_in(
+                        session_id, payload, sender_hash, identity_id
+                    )
+                elif command == CMD_DRAW_ACCEPT:
+                    result = self._handle_draw_accept_in(
+                        session_id, sender_hash, identity_id
+                    )
+                elif command == CMD_DRAW_DECLINE:
+                    result = self._handle_draw_decline_in(
+                        session_id, sender_hash, identity_id
+                    )
+                elif command == CMD_ERROR:
+                    result = {"session": session.to_dict(), "emit": None,
+                              "error": payload}
+                else:
+                    raise UnsupportedAction(self.app_id, command)
+        except SessionNotFound as exc:
+            return incoming_error(ERR_PROTOCOL_ERROR, str(exc), command)
+        except SessionExpired as exc:
+            return incoming_error(ERR_SESSION_EXPIRED, str(exc), command)
+        except UnauthorizedPeer as exc:
+            return incoming_error(ERR_PROTOCOL_ERROR, str(exc), command)
+        except (IllegalTransition, UnsupportedAction) as exc:
+            return incoming_error(ERR_PROTOCOL_ERROR, str(exc), command)
+
+        if result.get("error") is not None:
+            raw = result["error"]
+            result["error"] = error_payload(
+                raw.get("code", ERR_PROTOCOL_ERROR),
+                raw.get("msg", "Action rejected"),
+                raw.get("ref", command),
+            )
+        return result
 
     def handle_outgoing(self, session_id, command, payload, identity_id):
         if command == CMD_CHALLENGE:
@@ -219,6 +247,9 @@ class ChessApp(GameBase):
         if command == CMD_ACCEPT:
             return self._handle_accept_out(session_id, identity_id)
         if command == CMD_DECLINE:
+            session = self.require_live_session(session_id, identity_id)
+            SessionStateMachine.apply_command(session, CMD_DECLINE)
+            self._save_session(session)
             return {}, "[LRGP Chess] Challenge declined"
         if command == CMD_MOVE:
             return self._handle_move_out(session_id, payload, identity_id)
@@ -229,21 +260,66 @@ class ChessApp(GameBase):
         if command == CMD_DRAW_ACCEPT:
             return self._handle_draw_accept_out(session_id, identity_id)
         if command == CMD_DRAW_DECLINE:
-            return {}, "[LRGP Chess] Declined draw offer"
-        return payload, "[LRGP Chess] {}".format(command)
-
-    def validate_action(self, session_id, command, payload, sender_hash):
-        session = self._get_session(session_id)
-        if session is None:
-            if command == CMD_CHALLENGE:
-                return True, None
-            return False, "Session not found"
-        if SessionStateMachine.check_expiry(session, self.ttl):
+            session = self.require_live_session(session_id, identity_id)
+            session.metadata["draw_offered"] = False
+            session.metadata["draw_offered_by"] = ""
+            session.metadata["draw_offer_reason"] = ""
+            SessionStateMachine.apply_command(session, CMD_DRAW_DECLINE)
             self._save_session(session)
-            return False, "Session expired"
+            return {}, "[LRGP Chess] Declined draw offer"
+        if command == CMD_ERROR:
+            return payload, self.render_fallback(command, payload)
+        raise UnsupportedAction(self.app_id, command)
+
+    def validate_action(self, session_id, command, payload, sender_hash,
+                        identity_id=""):
+        session = self._get_session(session_id, identity_id)
+        if command == CMD_CHALLENGE:
+            if session is None:
+                return True, None
+            if session.contact_hash != sender_hash:
+                raise UnauthorizedPeer(session_id)
+            return True, None
+        if session is None:
+            raise SessionNotFound(session_id)
+        if session.status == "expired":
+            raise SessionExpired(session_id)
+        self.authorize_session(session, sender_hash)
         if command == CMD_MOVE:
             return self._validate_move(session, payload, sender_hash)
         return True, None
+
+    def validate_outgoing(self, session_id, command, payload, identity_id,
+                          participant_hash=""):
+        payload_error = self._outgoing_payload_error(command, payload)
+        if payload_error:
+            raise OutgoingActionError(ERR_PROTOCOL_ERROR, payload_error, command)
+        session = super().validate_outgoing(
+            session_id, command, payload, identity_id, participant_hash
+        )
+        if command == CMD_CHALLENGE:
+            return session
+        if command == CMD_MOVE:
+            valid, message = self._validate_local_move(session, payload, identity_id)
+            if not valid:
+                code = (ERR_NOT_YOUR_TURN if message == "Not your turn"
+                        else ERR_INVALID_MOVE)
+                raise OutgoingActionError(code, message, command)
+        if command == CMD_DRAW_OFFER and session.metadata.get("draw_offered"):
+            raise OutgoingActionError(
+                ERR_PROTOCOL_ERROR, "A draw offer is already outstanding", command
+            )
+        if command in (CMD_DRAW_ACCEPT, CMD_DRAW_DECLINE):
+            offerer = session.metadata.get("draw_offered_by", "")
+            if not session.metadata.get("draw_offered") or not offerer:
+                raise OutgoingActionError(
+                    ERR_PROTOCOL_ERROR, "No draw offer is outstanding", command
+                )
+            if offerer == identity_id:
+                raise OutgoingActionError(
+                    ERR_PROTOCOL_ERROR, "Cannot answer your own draw offer", command
+                )
+        return session
 
     def get_session_state(self, session_id, identity_id):
         session = self._get_session(session_id, identity_id)
@@ -284,6 +360,16 @@ class ChessApp(GameBase):
     # --- Incoming handlers ---
 
     def _handle_challenge_in(self, session_id, sender_hash, identity_id):
+        existing = self._get_session(session_id, identity_id)
+        if existing is not None:
+            if existing.contact_hash != sender_hash:
+                return incoming_error(
+                    ERR_PROTOCOL_ERROR,
+                    "Session id is already bound to another participant",
+                    CMD_CHALLENGE,
+                    existing,
+                )
+            return {"session": existing.to_dict(), "emit": None, "error": None}
         session = Session(
             session_id=session_id,
             identity_id=identity_id,
@@ -305,9 +391,16 @@ class ChessApp(GameBase):
         session = self._get_session(session_id, identity_id)
         if session is None:
             return _err(ERR_PROTOCOL_ERROR, "Unknown session")
+        white = payload.get(KEY_WHITE)
+        if white not in (identity_id, session.contact_hash):
+            return incoming_error(
+                ERR_PROTOCOL_ERROR,
+                "Accept white player must be one of the bound participants",
+                CMD_ACCEPT,
+                session,
+            )
         SessionStateMachine.apply_command(session, CMD_ACCEPT)
         meta = session.metadata
-        white = payload.get(KEY_WHITE, sender_hash)
         black = identity_id if white == sender_hash else sender_hash
         meta["white"] = white
         meta["black"] = black
@@ -346,6 +439,15 @@ class ChessApp(GameBase):
             return _err(ERR_INVALID_MOVE, "Move missing")
 
         moves = list(meta.get("moves", []))
+        claimed_ply = payload[KEY_PLY]
+        expected_ply = len(moves)
+        if claimed_ply != expected_ply:
+            return _err(
+                ERR_INVALID_MOVE,
+                "Ply mismatch: expected {}, got {}".format(
+                    expected_ply, claimed_ply
+                ),
+            )
         try:
             board = _replay_board(moves)
             move = board.parse_uci(uci)
@@ -369,7 +471,13 @@ class ChessApp(GameBase):
         meta["winner"] = winner
         meta["terminal"] = terminal
         meta["reason"] = reason
-        meta["turn"] = meta["black"] if sender_hash == meta["white"] else meta["white"]
+        meta["draw_offered"] = False
+        meta["draw_offered_by"] = ""
+        meta["draw_offer_reason"] = ""
+        meta["turn"] = (
+            "" if terminal
+            else meta["black"] if sender_hash == meta["white"] else meta["white"]
+        )
         _refresh_derived(session, board, moves)
 
         if terminal:
@@ -397,6 +505,10 @@ class ChessApp(GameBase):
         meta["winner"] = winner or ""
         meta["terminal"] = "win"
         meta["reason"] = R_RESIGN
+        meta["draw_offered"] = False
+        meta["draw_offered_by"] = ""
+        meta["draw_offer_reason"] = ""
+        meta["turn"] = ""
         SessionStateMachine.apply_command(session, CMD_RESIGN, terminal=True)
         session.unread = 1
         self._save_session(session)
@@ -420,6 +532,8 @@ class ChessApp(GameBase):
             meta["terminal"] = "draw"
             meta["reason"] = reason
             meta["draw_offered"] = False
+            meta["draw_offered_by"] = ""
+            meta["draw_offer_reason"] = ""
             meta["turn"] = ""
             SessionStateMachine.apply_command(session, CMD_DRAW_ACCEPT, terminal=True)
             session.unread = 1
@@ -430,7 +544,13 @@ class ChessApp(GameBase):
                 "reason": reason,
             }, "error": None}
 
+        if meta.get("draw_offered"):
+            return incoming_error(
+                ERR_PROTOCOL_ERROR, "A draw offer is already outstanding",
+                CMD_DRAW_OFFER, session,
+            )
         meta["draw_offered"] = True
+        meta["draw_offered_by"] = sender_hash
         meta["draw_offer_reason"] = reason
         SessionStateMachine.apply_command(session, CMD_DRAW_OFFER)
         session.unread = 1
@@ -454,8 +574,25 @@ class ChessApp(GameBase):
         if session is None:
             return _err(ERR_PROTOCOL_ERROR, "Unknown session")
         meta = session.metadata
+        offerer = meta.get("draw_offered_by", "")
+        if not meta.get("draw_offered") or not offerer:
+            return incoming_error(
+                ERR_PROTOCOL_ERROR, "No draw offer is outstanding",
+                CMD_DRAW_ACCEPT, session,
+            )
+        if offerer == sender_hash:
+            return incoming_error(
+                ERR_PROTOCOL_ERROR, "Cannot answer your own draw offer",
+                CMD_DRAW_ACCEPT, session,
+            )
         meta["terminal"] = "draw"
-        meta["reason"] = meta.get("draw_offer_reason") or R_AGREEMENT
+        # An invalid FIDE claim degrades to a normal offer. Agreement, not
+        # the rejected claim code, is therefore the terminal draw reason.
+        meta["reason"] = R_AGREEMENT
+        meta["draw_offered"] = False
+        meta["draw_offered_by"] = ""
+        meta["draw_offer_reason"] = ""
+        meta["turn"] = ""
         SessionStateMachine.apply_command(session, CMD_DRAW_ACCEPT, terminal=True)
         session.unread = 1
         self._save_session(session)
@@ -468,7 +605,19 @@ class ChessApp(GameBase):
         session = self._get_session(session_id, identity_id)
         if session is None:
             return _err(ERR_PROTOCOL_ERROR, "Unknown session")
+        offerer = session.metadata.get("draw_offered_by", "")
+        if not session.metadata.get("draw_offered") or not offerer:
+            return incoming_error(
+                ERR_PROTOCOL_ERROR, "No draw offer is outstanding",
+                CMD_DRAW_DECLINE, session,
+            )
+        if offerer == sender_hash:
+            return incoming_error(
+                ERR_PROTOCOL_ERROR, "Cannot answer your own draw offer",
+                CMD_DRAW_DECLINE, session,
+            )
         session.metadata["draw_offered"] = False
+        session.metadata["draw_offered_by"] = ""
         session.metadata["draw_offer_reason"] = ""
         SessionStateMachine.apply_command(session, CMD_DRAW_DECLINE)
         session.unread = 1
@@ -482,6 +631,9 @@ class ChessApp(GameBase):
 
     def _handle_challenge_out(self, session_id, identity_id):
         sid = session_id or _gen_session_id()
+        existing = self._get_session(sid, identity_id)
+        if existing is not None:
+            return {}, "[LRGP Chess] Sent a challenge!"
         session = Session(
             session_id=sid, identity_id=identity_id,
             app_id=self.app_id, app_version=self.version,
@@ -540,15 +692,22 @@ class ChessApp(GameBase):
         meta["winner"] = winner
         meta["terminal"] = terminal
         meta["reason"] = reason
-        meta["turn"] = meta["black"] if identity_id == meta["white"] else meta["white"]
+        meta["draw_offered"] = False
+        meta["draw_offered_by"] = ""
+        meta["draw_offer_reason"] = ""
+        meta["turn"] = (
+            "" if terminal
+            else meta["black"] if identity_id == meta["white"] else meta["white"]
+        )
         _refresh_derived(session, board, moves)
         SessionStateMachine.apply_command(session, CMD_MOVE, terminal=bool(terminal))
         self._save_session(session)
 
-        wire = {
-            KEY_MOVE: uci, KEY_PLY: ply,
-            KEY_TERMINAL: terminal, KEY_REASON: reason, KEY_WINNER: winner,
-        }
+        wire = {KEY_MOVE: uci, KEY_PLY: ply, KEY_TERMINAL: terminal}
+        if terminal:
+            wire[KEY_REASON] = reason
+        if terminal == "win":
+            wire[KEY_WINNER] = winner
         return wire, "[LRGP Chess] {}".format(uci)
 
     def _handle_resign_out(self, session_id, identity_id):
@@ -560,9 +719,13 @@ class ChessApp(GameBase):
         meta["winner"] = winner or ""
         meta["terminal"] = "win"
         meta["reason"] = R_RESIGN
+        meta["draw_offered"] = False
+        meta["draw_offered_by"] = ""
+        meta["draw_offer_reason"] = ""
+        meta["turn"] = ""
         SessionStateMachine.apply_command(session, CMD_RESIGN, terminal=True)
         self._save_session(session)
-        return {KEY_WINNER: meta["winner"]}, "[LRGP Chess] Resigned."
+        return {}, "[LRGP Chess] Resigned."
 
     def _handle_draw_offer_out(self, session_id, payload, identity_id):
         reason = _claim_str(payload or {}, KEY_REASON)
@@ -575,9 +738,13 @@ class ChessApp(GameBase):
                 meta["terminal"] = "draw"
                 meta["reason"] = reason
                 meta["turn"] = ""
+                meta["draw_offered"] = False
+                meta["draw_offered_by"] = ""
+                meta["draw_offer_reason"] = ""
                 SessionStateMachine.apply_command(session, CMD_DRAW_ACCEPT, terminal=True)
             else:
                 meta["draw_offered"] = True
+                meta["draw_offered_by"] = identity_id
                 meta["draw_offer_reason"] = reason
                 SessionStateMachine.apply_command(session, CMD_DRAW_OFFER)
             self._save_session(session)
@@ -594,12 +761,91 @@ class ChessApp(GameBase):
             return {}, "[LRGP Chess] Draw accepted"
         meta = session.metadata
         meta["terminal"] = "draw"
-        meta["reason"] = meta.get("draw_offer_reason") or R_AGREEMENT
+        meta["reason"] = R_AGREEMENT
+        meta["draw_offered"] = False
+        meta["draw_offered_by"] = ""
+        meta["draw_offer_reason"] = ""
+        meta["turn"] = ""
         SessionStateMachine.apply_command(session, CMD_DRAW_ACCEPT, terminal=True)
         self._save_session(session)
         return {}, "[LRGP Chess] Draw accepted"
 
     # --- Validation helper ---
+
+    @staticmethod
+    def _incoming_payload_error(command, payload):
+        empty_commands = {
+            CMD_CHALLENGE, CMD_DECLINE, CMD_RESIGN,
+            CMD_DRAW_ACCEPT, CMD_DRAW_DECLINE,
+        }
+        if command in empty_commands:
+            return None if payload == {} else "{} payload must be empty".format(command)
+        if command == CMD_ACCEPT:
+            if set(payload) != {KEY_WHITE} or not isinstance(payload.get(KEY_WHITE), str):
+                return "accept payload must contain exactly string w"
+        elif command == CMD_DRAW_OFFER:
+            if payload == {}:
+                return None
+            if (set(payload) != {KEY_REASON}
+                    or payload.get(KEY_REASON) not in (R_THREEFOLD, R_FIFTY_MOVE)):
+                return "draw_offer payload must be empty or contain a valid claim r"
+        elif command == CMD_MOVE:
+            terminal = payload.get(KEY_TERMINAL)
+            expected = {KEY_MOVE, KEY_PLY, KEY_TERMINAL}
+            if terminal in ("win", "draw"):
+                expected.add(KEY_REASON)
+            if terminal == "win":
+                expected.add(KEY_WINNER)
+            if set(payload) != expected:
+                return "move payload has non-canonical keys"
+            if (not isinstance(payload.get(KEY_MOVE), str)
+                    or isinstance(payload.get(KEY_PLY), bool)
+                    or not isinstance(payload.get(KEY_PLY), int)
+                    or terminal not in ("", "win", "draw")):
+                return "move payload has invalid value types"
+            if terminal and not isinstance(payload.get(KEY_REASON), str):
+                return "terminal move reason must be a string"
+            if terminal == "win" and not isinstance(payload.get(KEY_WINNER), str):
+                return "winning move winner must be a string"
+        return None
+
+    @staticmethod
+    def _outgoing_payload_error(command, payload):
+        if command == CMD_MOVE:
+            if set(payload) != {KEY_MOVE} or not isinstance(payload.get(KEY_MOVE), str):
+                return "local move intent must contain exactly string m"
+            return None
+        if command == CMD_DRAW_OFFER:
+            if payload == {}:
+                return None
+            if (set(payload) == {KEY_REASON}
+                    and payload.get(KEY_REASON) in (R_THREEFOLD, R_FIFTY_MOVE)):
+                return None
+            return "local draw_offer must be empty or contain a valid claim r"
+        if command != CMD_ERROR and payload != {}:
+            return "{} local payload must be empty".format(command)
+        return None
+
+    def _validate_local_move(self, session, payload, sender_hash):
+        if session.status != STATUS_ACTIVE:
+            return False, "Session is not active (status={})".format(session.status)
+        meta = session.metadata
+        turn = meta.get("turn", "")
+        if not turn:
+            return False, "Turn is required before moves"
+        if turn != sender_hash:
+            return False, "Not your turn"
+        uci = payload.get(KEY_MOVE)
+        if not isinstance(uci, str):
+            return False, "Missing move"
+        try:
+            board = _replay_board(meta.get("moves", []))
+            move = board.parse_uci(uci)
+        except (ValueError, _chess.InvalidMoveError):
+            return False, "Invalid UCI"
+        if move not in board.legal_moves:
+            return False, "Illegal move"
+        return True, None
 
     def _validate_move(self, session, payload, sender_hash):
         meta = session.metadata

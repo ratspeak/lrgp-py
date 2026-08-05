@@ -31,14 +31,16 @@ def main():
     app_x = TicTacToeApp()  # Challenger (X)
     app_o = TicTacToeApp()  # Responder (O)
 
-    session_id = "local_game_001"
+    session_id = "10ca1ba9e0000001"
 
     print("=== LRGP Tic-Tac-Toe Local Simulation ===")
     print()
 
     # 1. X sends challenge
-    payload_out, fallback = app_x.handle_outgoing(session_id, CMD_CHALLENGE,
-                                                   {}, PLAYER_X)
+    payload_out, fallback = app_x.handle_outgoing(
+        session_id, CMD_CHALLENGE, {}, PLAYER_X
+    )
+    app_x.bind_peer(session_id, PLAYER_X, PLAYER_O)
     envelope = pack_envelope("ttt", 1, CMD_CHALLENGE, session_id, payload_out)
     env_size = validate_envelope_size(envelope)
     print("X: {} (envelope: {} B)".format(fallback, env_size))

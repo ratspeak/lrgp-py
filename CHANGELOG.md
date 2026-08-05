@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.4.0 — 2026-08-04
+
+### Breaking
+
+- Canonical envelope, session ID, native LXMF field types, strict built-in
+  payloads, participant binding, and scoped replay semantics now match
+  `lrgp-rs` and the normative specification.
+- `LrgpStore.save_session()` is insert-only. Existing records must be changed
+  through the explicit mutable-field allowlist in `update_session()`.
+- The optional LXMF bridge forwards LRGP messages only when LXMF has validated
+  the sender signature.
+
+### Added
+
+- Typed router results, explicit-participant outgoing preparation, TTL-aware
+  hydration/list/removal, challenge-admission limits, and public transactional
+  snapshot/rollback helpers for durable inbound and outbound integration.
+- Draw-offer ownership, legacy hydration normalization, strict terminal claim
+  verification, canonical Rust interoperability vectors, and duplicate-key /
+  trailing-byte decoder rejection.
+
 ## 0.3.0 — 2026-05-01
 
 ### Added

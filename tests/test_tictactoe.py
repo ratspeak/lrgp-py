@@ -10,6 +10,7 @@ from lrgp.constants import (
     CMD_CHALLENGE, CMD_ACCEPT, CMD_DECLINE, CMD_MOVE, CMD_RESIGN,
     CMD_DRAW_OFFER, CMD_DRAW_ACCEPT, CMD_DRAW_DECLINE,
 )
+from lrgp.errors import OutgoingActionError
 
 
 @pytest.fixture
@@ -275,9 +276,14 @@ class TestFullGame:
 class TestDrawNegotiation:
     def test_draw_offer_accept(self, app):
         start_game(app)
+        session = app._get_session(SESSION, RESPONDER)
+        session.last_action_at -= 1
+        previous_action_at = session.last_action_at
         app.handle_incoming(SESSION, CMD_DRAW_OFFER, {}, CHALLENGER, RESPONDER)
         session = app._get_session(SESSION, RESPONDER)
         assert session.metadata["draw_offered"] is True
+        assert session.metadata["draw_offered_by"] == CHALLENGER
+        assert session.last_action_at > previous_action_at
 
         result = app.handle_incoming(SESSION, CMD_DRAW_ACCEPT, {},
                                       RESPONDER, RESPONDER)
@@ -285,6 +291,8 @@ class TestDrawNegotiation:
         session = app._get_session(SESSION, RESPONDER)
         assert session.status == STATUS_COMPLETED
         assert session.metadata["terminal"] == "draw"
+        assert session.metadata["draw_offered"] is False
+        assert session.metadata["draw_offered_by"] == ""
 
     def test_draw_offer_decline(self, app):
         start_game(app)
@@ -294,6 +302,58 @@ class TestDrawNegotiation:
         session = app._get_session(SESSION, RESPONDER)
         assert session.status == STATUS_ACTIVE
         assert session.metadata["draw_offered"] is False
+        assert session.metadata["draw_offered_by"] == ""
+
+    def test_offerer_cannot_accept_or_replace_own_offer(self, app):
+        start_game(app)
+        app.handle_incoming(SESSION, CMD_DRAW_OFFER, {}, CHALLENGER, RESPONDER)
+        before = app._get_session(SESSION, RESPONDER).to_dict()
+
+        accepted = app.handle_incoming(
+            SESSION, CMD_DRAW_ACCEPT, {}, CHALLENGER, RESPONDER
+        )
+        replaced = app.handle_incoming(
+            SESSION, CMD_DRAW_OFFER, {}, RESPONDER, RESPONDER
+        )
+        assert accepted["error"] is not None
+        assert replaced["error"] is not None
+        after = app._get_session(SESSION, RESPONDER).to_dict()
+        assert after == before
+
+    def test_local_offerer_cannot_answer_own_offer(self, app):
+        start_game(app)
+        app.validate_outgoing(
+            SESSION, CMD_DRAW_OFFER, {}, RESPONDER, CHALLENGER
+        )
+        app.handle_outgoing(SESSION, CMD_DRAW_OFFER, {}, RESPONDER)
+        with pytest.raises(OutgoingActionError):
+            app.validate_outgoing(
+                SESSION, CMD_DRAW_ACCEPT, {}, RESPONDER, CHALLENGER
+            )
+
+    def test_payload_shapes_and_winner_claim_are_strict(self, app):
+        challenge = app.handle_incoming(
+            SESSION, CMD_CHALLENGE, {"extra": True}, CHALLENGER, RESPONDER
+        )
+        assert challenge["error"] is not None
+        assert app._get_session(SESSION, RESPONDER) is None
+
+        start_game(app)
+        session = app._get_session(SESSION, RESPONDER)
+        session.metadata.update({
+            "board": "XX_OO____",
+            "turn": CHALLENGER,
+            "move_count": 4,
+        })
+        forged = {
+            "i": 2, "b": "XXXOO____", "n": 5, "t": "", "x": "win",
+            "w": RESPONDER,
+        }
+        result = app.handle_incoming(
+            SESSION, CMD_MOVE, forged, CHALLENGER, RESPONDER
+        )
+        assert result["error"] is not None
+        assert app._get_session(SESSION, RESPONDER).metadata["board"] == "XX_OO____"
 
 
 class TestFallback:
@@ -316,8 +376,9 @@ class TestFallback:
 
 class TestOutgoing:
     def test_challenge_out(self, app):
-        payload, fallback = app.handle_outgoing("new_sess", CMD_CHALLENGE,
-                                                 {}, "my_id")
+        payload, fallback = app.handle_outgoing(
+            "new_sess", CMD_CHALLENGE, {}, "my_id"
+        )
         assert "[LRGP TTT]" in fallback
         # Session should be created
         session = app._get_session("new_sess", "my_id")
@@ -338,6 +399,7 @@ class TestOutgoing:
         # We need to set up from challenger's perspective
         app2 = TicTacToeApp()
         app2.handle_outgoing("s2", CMD_CHALLENGE, {}, "challenger_id")
+        app2.bind_peer("s2", "challenger_id", "responder")
         # Simulate accept arriving
         app2.handle_incoming("s2", CMD_ACCEPT,
                               {"b": EMPTY_BOARD, "t": "challenger_id"},
@@ -355,6 +417,7 @@ class TestOutgoing:
         responder = "bob"
 
         app.handle_outgoing("g1", CMD_CHALLENGE, {}, challenger)
+        app.bind_peer("g1", challenger, responder)
         app.handle_incoming("g1", CMD_CHALLENGE, {}, challenger, responder)
 
         accept_payload, _ = app.handle_outgoing("g1", CMD_ACCEPT, {}, responder)

@@ -6,6 +6,11 @@ import time
 import threading
 
 
+_MUTABLE_SESSION_FIELDS = {
+    "status", "metadata", "unread", "updated_at", "last_action_at",
+}
+
+
 _CREATE_TABLES = """
 CREATE TABLE IF NOT EXISTS game_sessions (
     session_id    TEXT NOT NULL,
@@ -46,25 +51,32 @@ class LrgpStore:
 
     def __init__(self, db_path=":memory:"):
         self._db_path = db_path
-        self._local = threading.local()
+        self._lock = threading.RLock()
+        # One serialized connection makes :memory: stores coherent across
+        # threads; thread-local connections each create an unrelated database.
+        self._conn = sqlite3.connect(db_path, check_same_thread=False)
+        self._conn.row_factory = sqlite3.Row
+        self._conn.execute("PRAGMA journal_mode=WAL")
         self._init_db()
 
     def _get_conn(self):
-        if not hasattr(self._local, "conn") or self._local.conn is None:
-            self._local.conn = sqlite3.connect(self._db_path)
-            self._local.conn.row_factory = sqlite3.Row
-            self._local.conn.execute("PRAGMA journal_mode=WAL")
-        return self._local.conn
+        return self._conn
 
     def _init_db(self):
-        conn = self._get_conn()
-        conn.executescript(_CREATE_TABLES)
-        conn.commit()
+        with self._lock:
+            conn = self._get_conn()
+            conn.executescript(_CREATE_TABLES)
+            conn.commit()
 
     # --- Sessions ---
 
     def save_session(self, session):
-        """Insert or replace a session. Accepts a Session object or dict."""
+        """Insert a new session.
+
+        Mutation is intentionally separate in :meth:`update_session`.  A
+        duplicate composite key is a protocol/storage error and must never
+        silently replace an established participant binding or game state.
+        """
         if hasattr(session, "to_dict"):
             d = session.to_dict()
         else:
@@ -74,31 +86,39 @@ class LrgpStore:
         if isinstance(meta, dict):
             meta = json.dumps(meta)
 
-        conn = self._get_conn()
-        conn.execute(
-            """INSERT OR REPLACE INTO game_sessions
-               (session_id, identity_id, app_id, app_version, contact_hash,
-                initiator, status, metadata, unread, created_at, updated_at,
-                last_action_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (d["session_id"], d.get("identity_id", ""),
-             d["app_id"], d.get("app_version", 1),
-             d["contact_hash"], d.get("initiator", ""),
-             d.get("status", "pending"), meta,
-             d.get("unread", 0),
-             d.get("created_at", time.time()),
-             d.get("updated_at", time.time()),
-             d.get("last_action_at", time.time())),
+        values = (
+            d["session_id"], d.get("identity_id", ""),
+            d["app_id"], d.get("app_version", 1),
+            d["contact_hash"], d.get("initiator", ""),
+            d.get("status", "pending"), meta,
+            d.get("unread", 0),
+            d.get("created_at", time.time()),
+            d.get("updated_at", time.time()),
+            d.get("last_action_at", time.time()),
         )
-        conn.commit()
+        with self._lock:
+            conn = self._get_conn()
+            try:
+                conn.execute(
+                    """INSERT INTO game_sessions
+                   (session_id, identity_id, app_id, app_version, contact_hash,
+                    initiator, status, metadata, unread, created_at, updated_at,
+                    last_action_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    values,
+                )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
 
     def get_session(self, session_id, identity_id=""):
         """Get a session by ID. Returns dict or None."""
-        conn = self._get_conn()
-        row = conn.execute(
-            "SELECT * FROM game_sessions WHERE session_id=? AND identity_id=?",
-            (session_id, identity_id),
-        ).fetchone()
+        with self._lock:
+            row = self._get_conn().execute(
+                "SELECT * FROM game_sessions WHERE session_id=? AND identity_id=?",
+                (session_id, identity_id),
+            ).fetchone()
         if row is None:
             return None
         return self._row_to_dict(row)
@@ -107,6 +127,13 @@ class LrgpStore:
         """Update specific fields of a session."""
         if not kwargs:
             return
+        invalid = set(kwargs) - _MUTABLE_SESSION_FIELDS
+        if invalid:
+            raise ValueError(
+                "session fields are not mutable: {}".format(
+                    ", ".join(sorted(invalid))
+                )
+            )
         if "metadata" in kwargs and isinstance(kwargs["metadata"], dict):
             kwargs["metadata"] = json.dumps(kwargs["metadata"])
         kwargs["updated_at"] = time.time()
@@ -114,12 +141,13 @@ class LrgpStore:
         sets = ", ".join("{}=?".format(k) for k in kwargs)
         vals = list(kwargs.values()) + [session_id, identity_id]
 
-        conn = self._get_conn()
-        conn.execute(
-            "UPDATE game_sessions SET {} WHERE session_id=? AND identity_id=?".format(sets),
-            vals,
-        )
-        conn.commit()
+        with self._lock:
+            conn = self._get_conn()
+            conn.execute(
+                "UPDATE game_sessions SET {} WHERE session_id=? AND identity_id=?".format(sets),
+                vals,
+            )
+            conn.commit()
 
     def list_sessions(self, identity_id="", app_id=None, status=None,
                       contact_hash=None):
@@ -137,26 +165,31 @@ class LrgpStore:
             clauses.append("contact_hash=?")
             params.append(contact_hash)
 
-        conn = self._get_conn()
-        rows = conn.execute(
-            "SELECT * FROM game_sessions WHERE {} ORDER BY last_action_at DESC".format(
-                " AND ".join(clauses)),
-            params,
-        ).fetchall()
+        with self._lock:
+            rows = self._get_conn().execute(
+                "SELECT * FROM game_sessions WHERE {} ORDER BY last_action_at DESC".format(
+                    " AND ".join(clauses)),
+                params,
+            ).fetchall()
         return [self._row_to_dict(r) for r in rows]
 
     def delete_session(self, session_id, identity_id=""):
         """Delete a session and its actions."""
-        conn = self._get_conn()
-        conn.execute(
-            "DELETE FROM game_sessions WHERE session_id=? AND identity_id=?",
-            (session_id, identity_id),
-        )
-        conn.execute(
-            "DELETE FROM game_actions WHERE session_id=? AND identity_id=?",
-            (session_id, identity_id),
-        )
-        conn.commit()
+        with self._lock:
+            conn = self._get_conn()
+            try:
+                conn.execute(
+                    "DELETE FROM game_sessions WHERE session_id=? AND identity_id=?",
+                    (session_id, identity_id),
+                )
+                conn.execute(
+                    "DELETE FROM game_actions WHERE session_id=? AND identity_id=?",
+                    (session_id, identity_id),
+                )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
 
     # --- Actions ---
 
@@ -167,26 +200,31 @@ class LrgpStore:
             timestamp = time.time()
         payload_json = json.dumps(payload) if isinstance(payload, dict) else payload
 
-        conn = self._get_conn()
-        conn.execute(
-            """INSERT OR REPLACE INTO game_actions
-               (session_id, identity_id, action_num, command, payload_json,
-                sender, timestamp)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (session_id, identity_id, action_num, command, payload_json,
-             sender, timestamp),
-        )
-        conn.commit()
+        with self._lock:
+            conn = self._get_conn()
+            try:
+                conn.execute(
+                    """INSERT INTO game_actions
+                   (session_id, identity_id, action_num, command, payload_json,
+                    sender, timestamp)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (session_id, identity_id, action_num, command, payload_json,
+                     sender, timestamp),
+                )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
 
     def get_actions(self, session_id, identity_id=""):
         """Get all actions for a session, ordered by action_num."""
-        conn = self._get_conn()
-        rows = conn.execute(
-            """SELECT * FROM game_actions
+        with self._lock:
+            rows = self._get_conn().execute(
+                """SELECT * FROM game_actions
                WHERE session_id=? AND identity_id=?
                ORDER BY action_num""",
-            (session_id, identity_id),
-        ).fetchall()
+                (session_id, identity_id),
+            ).fetchall()
         result = []
         for r in rows:
             d = dict(r)
@@ -196,11 +234,11 @@ class LrgpStore:
 
     def get_action_count(self, session_id, identity_id=""):
         """Get the number of actions in a session."""
-        conn = self._get_conn()
-        row = conn.execute(
-            "SELECT COUNT(*) FROM game_actions WHERE session_id=? AND identity_id=?",
-            (session_id, identity_id),
-        ).fetchone()
+        with self._lock:
+            row = self._get_conn().execute(
+                "SELECT COUNT(*) FROM game_actions WHERE session_id=? AND identity_id=?",
+                (session_id, identity_id),
+            ).fetchone()
         return row[0]
 
     # --- Helpers ---

@@ -18,14 +18,14 @@ Where `fields_dict` contains the LRGP envelope:
     0xFD: {                     # FIELD_CUSTOM_META (envelope)
         "a": "ttt.1",
         "c": "move",
-        "s": "a1b2c3d4e5f6g7h8",
+        "s": "a1b2c3d4e5f60718",
         "p": { ... },
         "n": <8 bytes>,         # CSPRNG replay-dedup nonce
     }
 }
 ```
 
-The `n` field is a fresh 8-byte CSPRNG nonce (msgpack `bin8`) on every outbound envelope. Receivers run `(session_id, n)` through a per-session bounded LRU (512 entries, 600s TTL) to drop duplicates. See [SPEC.md §3.1](../SPEC.md) for the full replay-protection contract.
+The `n` field is a fresh 8-byte CSPRNG nonce (msgpack `bin8`) on every outbound envelope. Receivers run `(receiving_identity_id, session_id, n)` through a bounded cache (512 nonces per scope, 1024 scopes, 600s absolute TTL) to drop duplicates. Terminal sessions retain entries through TTL. See [SPEC.md §3.1](../SPEC.md) for the full replay-protection contract.
 
 ## Hex Examples
 
@@ -36,11 +36,11 @@ Envelope dict (~57 bytes packed including the 8-byte nonce):
 ```
 85                          # fixmap(5)
   a1 61                     # "a"
-  a7 74 74 74 2e 31         # "ttt.1"
+  a5 74 74 74 2e 31         # "ttt.1"
   a1 63                     # "c"
   a9 63 68 61 6c 6c 65 6e 67 65  # "challenge"
   a1 73                     # "s"
-  b0 61 31 62 32 63 33 64 34 65 35 66 36 67 37 68 38  # "a1b2c3d4e5f6g7h8"
+  b0 61 31 62 32 63 33 64 34 65 35 66 36 30 37 31 38  # "a1b2c3d4e5f60718"
   a1 70                     # "p"
   80                        # fixmap(0) (empty payload)
   a1 6e                     # "n"
@@ -53,7 +53,7 @@ Envelope dict (~85 bytes packed):
 
 ```
 85                          # fixmap(5)
-  a1 61  a7 74 74 74 2e 31  # "a": "ttt.1"
+  a1 61  a5 74 74 74 2e 31  # "a": "ttt.1"
   a1 63  a4 6d 6f 76 65     # "c": "move"
   a1 73  b0 ...             # "s": session_id (16 chars)
   a1 70                     # "p":
@@ -101,4 +101,4 @@ Every TTT and Chess action fits comfortably within OPPORTUNISTIC limits — wors
 
 ## Key Ordering
 
-msgpack maps are unordered by spec. Implementations MUST NOT compare envelopes byte-for-byte and MUST decode by key lookup. Two implementations may emit the same envelope with different on-the-wire byte ordering and both are equally conformant.
+msgpack maps are unordered by spec. Implementations MUST NOT compare envelopes byte-for-byte and MUST decode by key lookup. Two implementations may emit the same envelope with different on-the-wire byte ordering and both are equally conformant. Decoders reject duplicate map keys at every nesting level, and byte-oriented decoders reject trailing data after the one envelope.

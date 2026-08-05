@@ -1,4 +1,4 @@
-"""Tests for RLAP session state machine and lifecycle."""
+"""Tests for LRGP session state machine and lifecycle."""
 
 import time
 import pytest
@@ -28,6 +28,21 @@ class TestSession:
         assert s2.session_id == "abc"
         assert s2.app_id == "ttt"
         assert s2.metadata == {"key": "val"}
+
+    def test_exports_and_restores_do_not_alias_mutable_metadata(self):
+        s = Session(
+            session_id="abc", app_id="ttt",
+            metadata={"moves": ["one"], "nested": {"turn": "peer"}},
+        )
+        exported = s.to_dict()
+        restored = Session.from_dict(exported)
+
+        exported["metadata"]["moves"].append("two")
+        restored.metadata["nested"]["turn"] = "other"
+
+        assert s.metadata == {
+            "moves": ["one"], "nested": {"turn": "peer"},
+        }
 
 
 class TestStateMachine:

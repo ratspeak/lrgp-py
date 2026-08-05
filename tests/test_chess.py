@@ -13,9 +13,10 @@ from lrgp.envelope import pack_envelope, unpack_envelope, pack_lxmf_fields
 from lrgp.constants import (
     STATUS_PENDING, STATUS_ACTIVE, STATUS_COMPLETED,
     CMD_CHALLENGE, CMD_ACCEPT, CMD_MOVE, CMD_RESIGN,
-    CMD_DRAW_OFFER, CMD_DRAW_ACCEPT,
+    CMD_DRAW_OFFER, CMD_DRAW_ACCEPT, CMD_DRAW_DECLINE,
     KEY_APP, KEY_COMMAND, KEY_SESSION, KEY_PAYLOAD,
 )
+from lrgp.errors import OutgoingActionError
 from lrgp.apps.chess import (
     ChessApp, force_coin, STARTING_FEN,
     R_CHECKMATE, R_STALEMATE, R_INSUFFICIENT, R_RESIGN, R_AGREEMENT,
@@ -166,7 +167,7 @@ class TestSessionLifecycle:
         app.handle_incoming(SESSION, CMD_ACCEPT, {KEY_WHITE: PLAYER_A}, PLAYER_B, PLAYER_B)
         app.handle_incoming(
             SESSION, CMD_MOVE,
-            {KEY_MOVE: "e2e4", KEY_PLY: 0, KEY_TERMINAL: "", KEY_REASON: "", KEY_WINNER: ""},
+            {KEY_MOVE: "e2e4", KEY_PLY: 0, KEY_TERMINAL: ""},
             PLAYER_A, PLAYER_B,
         )
         s = app._get_session(SESSION, PLAYER_B)
@@ -178,10 +179,23 @@ class TestSessionLifecycle:
         app.handle_incoming(SESSION, CMD_ACCEPT, {KEY_WHITE: PLAYER_A}, PLAYER_B, PLAYER_B)
         result = app.handle_incoming(
             SESSION, CMD_MOVE,
-            {KEY_MOVE: "e2e9", KEY_PLY: 0, KEY_TERMINAL: "", KEY_REASON: "", KEY_WINNER: ""},
+            {KEY_MOVE: "e2e9", KEY_PLY: 0, KEY_TERMINAL: ""},
             PLAYER_A, PLAYER_B,
         )
         assert result["error"] is not None
+
+    def test_wrong_ply_is_rejected_without_mutating_history(self, app):
+        app.handle_incoming(SESSION, CMD_CHALLENGE, {}, PLAYER_A, PLAYER_B)
+        app.handle_incoming(SESSION, CMD_ACCEPT, {KEY_WHITE: PLAYER_A}, PLAYER_B, PLAYER_B)
+        result = app.handle_incoming(
+            SESSION, CMD_MOVE,
+            {KEY_MOVE: "e2e4", KEY_PLY: 1, KEY_TERMINAL: ""},
+            PLAYER_A, PLAYER_B,
+        )
+        assert result["error"] is not None
+        session = app._get_session(SESSION, PLAYER_B)
+        assert session.metadata["moves"] == []
+        assert session.metadata["turn"] == PLAYER_A
 
     def test_resign_completes_session(self, app):
         app.handle_incoming(SESSION, CMD_CHALLENGE, {}, PLAYER_A, PLAYER_B)
@@ -192,6 +206,7 @@ class TestSessionLifecycle:
         assert s.metadata["terminal"] == "win"
         assert s.metadata["reason"] == R_RESIGN
         assert s.metadata["winner"] == PLAYER_B  # opponent of resigner
+        assert s.metadata["turn"] == ""
 
 
 class TestTerminalClaimValidation:
@@ -203,10 +218,12 @@ class TestTerminalClaimValidation:
         app.handle_incoming(SESSION, CMD_ACCEPT, {KEY_WHITE: PLAYER_A}, PLAYER_B, identity)
 
     def _move(self, uci, ply, terminal="", reason="", winner=""):
-        return {
-            KEY_MOVE: uci, KEY_PLY: ply,
-            KEY_TERMINAL: terminal, KEY_REASON: reason, KEY_WINNER: winner,
-        }
+        payload = {KEY_MOVE: uci, KEY_PLY: ply, KEY_TERMINAL: terminal}
+        if terminal:
+            payload[KEY_REASON] = reason
+        if terminal == "win":
+            payload[KEY_WINNER] = winner
+        return payload
 
     def test_forged_win_on_legal_move_rejected(self, app):
         self._setup_active(app)
@@ -256,6 +273,23 @@ class TestTerminalClaimValidation:
         assert s.status == STATUS_COMPLETED
         assert s.metadata["terminal"] == "win"
         assert s.metadata["winner"] == PLAYER_B
+        assert s.metadata["turn"] == ""
+
+    def test_outgoing_checkmate_clears_turn(self, app):
+        self._setup_active(app)
+        for ply, (uci, sender) in enumerate(
+            [("f2f3", PLAYER_A), ("e7e5", PLAYER_B), ("g2g4", PLAYER_A)]
+        ):
+            result = app.handle_incoming(
+                SESSION, CMD_MOVE, self._move(uci, ply), sender, PLAYER_B)
+            assert result["error"] is None
+
+        wire, _fallback = app.handle_outgoing(
+            SESSION, CMD_MOVE, {KEY_MOVE: "d8h4"}, PLAYER_B
+        )
+
+        assert wire[KEY_TERMINAL] == "win"
+        assert app._get_session(SESSION, PLAYER_B).metadata["turn"] == ""
 
     def test_validate_action_rejects_forged_terminal(self, app):
         # validate_action resolves the session under the default identity.
@@ -305,8 +339,7 @@ class TestDrawClaims:
             sender = PLAYER_A if ply % 2 == 0 else PLAYER_B
             result = app.handle_incoming(
                 SESSION, CMD_MOVE,
-                {KEY_MOVE: uci, KEY_PLY: ply, KEY_TERMINAL: "",
-                 KEY_REASON: "", KEY_WINNER: ""},
+                {KEY_MOVE: uci, KEY_PLY: ply, KEY_TERMINAL: ""},
                 sender, identity,
             )
             assert result["error"] is None
@@ -333,6 +366,41 @@ class TestDrawClaims:
         assert s.metadata.get("terminal", "") == ""
         assert s.metadata["draw_offered"] is True
 
+    def test_accepting_invalid_claim_is_agreement_not_claim(self, app):
+        app.handle_incoming(SESSION, CMD_CHALLENGE, {}, PLAYER_A, PLAYER_B)
+        app.handle_incoming(
+            SESSION, CMD_ACCEPT, {KEY_WHITE: PLAYER_A}, PLAYER_B, PLAYER_B
+        )
+        app.handle_incoming(
+            SESSION, CMD_DRAW_OFFER, {KEY_REASON: R_THREEFOLD},
+            PLAYER_A, PLAYER_B,
+        )
+
+        result = app.handle_incoming(
+            SESSION, CMD_DRAW_ACCEPT, {}, PLAYER_B, PLAYER_B
+        )
+
+        assert result["error"] is None
+        session = app._get_session(SESSION, PLAYER_B)
+        assert session.metadata["reason"] == R_AGREEMENT
+        assert session.metadata["turn"] == ""
+
+    def test_locally_accepting_invalid_claim_is_agreement(self, app):
+        app.handle_incoming(SESSION, CMD_CHALLENGE, {}, PLAYER_A, PLAYER_B)
+        app.handle_incoming(
+            SESSION, CMD_ACCEPT, {KEY_WHITE: PLAYER_A}, PLAYER_B, PLAYER_B
+        )
+        app.handle_incoming(
+            SESSION, CMD_DRAW_OFFER, {KEY_REASON: R_FIFTY_MOVE},
+            PLAYER_A, PLAYER_B,
+        )
+
+        app.handle_outgoing(SESSION, CMD_DRAW_ACCEPT, {}, PLAYER_B)
+
+        session = app._get_session(SESSION, PLAYER_B)
+        assert session.metadata["reason"] == R_AGREEMENT
+        assert session.metadata["turn"] == ""
+
     def test_claim_out_preterminates_claimant(self, app):
         self._setup_threefold(app, PLAYER_A)
         wire, fallback = app.handle_outgoing(
@@ -343,6 +411,93 @@ class TestDrawClaims:
         assert s.metadata["terminal"] == "draw"
         assert s.metadata["reason"] == R_THREEFOLD
 
+
+class TestDrawNegotiation:
+    def _setup_active(self, app, identity=PLAYER_B):
+        app.handle_incoming(SESSION, CMD_CHALLENGE, {}, PLAYER_A, identity)
+        app.handle_incoming(
+            SESSION, CMD_ACCEPT, {KEY_WHITE: PLAYER_A}, PLAYER_B, identity
+        )
+
+    def test_offer_owner_must_be_the_other_player(self, app):
+        self._setup_active(app)
+        offered = app.handle_incoming(
+            SESSION, CMD_DRAW_OFFER, {}, PLAYER_A, PLAYER_B
+        )
+        assert offered["error"] is None
+        session = app._get_session(SESSION, PLAYER_B)
+        assert session.metadata["draw_offered"] is True
+        assert session.metadata["draw_offered_by"] == PLAYER_A
+        before = session.to_dict()
+
+        self_accept = app.handle_incoming(
+            SESSION, CMD_DRAW_ACCEPT, {}, PLAYER_A, PLAYER_B
+        )
+        replacement = app.handle_incoming(
+            SESSION, CMD_DRAW_OFFER, {}, PLAYER_B, PLAYER_B
+        )
+        assert self_accept["error"] is not None
+        assert replacement["error"] is not None
+        assert app._get_session(SESSION, PLAYER_B).to_dict() == before
+
+        declined = app.handle_incoming(
+            SESSION, CMD_DRAW_DECLINE, {}, PLAYER_B, PLAYER_B
+        )
+        assert declined["error"] is None
+        session = app._get_session(SESSION, PLAYER_B)
+        assert session.metadata["draw_offered"] is False
+        assert session.metadata["draw_offered_by"] == ""
+
+    def test_local_offerer_cannot_answer_own_offer(self, app):
+        self._setup_active(app)
+        app.validate_outgoing(
+            SESSION, CMD_DRAW_OFFER, {}, PLAYER_B, PLAYER_A
+        )
+        app.handle_outgoing(SESSION, CMD_DRAW_OFFER, {}, PLAYER_B)
+        with pytest.raises(OutgoingActionError):
+            app.validate_outgoing(
+                SESSION, CMD_DRAW_ACCEPT, {}, PLAYER_B, PLAYER_A
+            )
+
+
+class TestCanonicalPayloads:
+    def test_malformed_challenge_does_not_create_session(self, app):
+        result = app.handle_incoming(
+            SESSION, CMD_CHALLENGE, {"extra": True}, PLAYER_A, PLAYER_B
+        )
+        assert result["error"] is not None
+        assert app._get_session(SESSION, PLAYER_B) is None
+
+    def test_accept_and_normal_move_reject_extra_keys_before_mutation(self, app):
+        app.handle_incoming(SESSION, CMD_CHALLENGE, {}, PLAYER_A, PLAYER_B)
+        malformed_accept = app.handle_incoming(
+            SESSION, CMD_ACCEPT,
+            {KEY_WHITE: PLAYER_A, "extra": True}, PLAYER_B, PLAYER_B,
+        )
+        assert malformed_accept["error"] is not None
+        assert app._get_session(SESSION, PLAYER_B).status == STATUS_PENDING
+
+        app.handle_incoming(
+            SESSION, CMD_ACCEPT, {KEY_WHITE: PLAYER_A}, PLAYER_B, PLAYER_B
+        )
+        malformed_move = app.handle_incoming(
+            SESSION, CMD_MOVE,
+            {
+                KEY_MOVE: "e2e4", KEY_PLY: 0, KEY_TERMINAL: "",
+                KEY_REASON: "", KEY_WINNER: "",
+            },
+            PLAYER_A, PLAYER_B,
+        )
+        assert malformed_move["error"] is not None
+        assert app._get_session(SESSION, PLAYER_B).metadata["moves"] == []
+
+    def test_outgoing_resign_is_an_empty_wire_payload(self, app):
+        app.handle_incoming(SESSION, CMD_CHALLENGE, {}, PLAYER_A, PLAYER_B)
+        app.handle_incoming(
+            SESSION, CMD_ACCEPT, {KEY_WHITE: PLAYER_A}, PLAYER_B, PLAYER_B
+        )
+        wire, _ = app.handle_outgoing(SESSION, CMD_RESIGN, {}, PLAYER_B)
+        assert wire == {}
 
 class TestRenderFallback:
     def test_challenge_fallback(self, app):

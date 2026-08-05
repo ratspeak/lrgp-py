@@ -1,5 +1,6 @@
 """LRGP game session state machine and lifecycle."""
 
+import copy
 import time
 from .constants import (
     STATUS_PENDING, STATUS_ACTIVE, STATUS_COMPLETED,
@@ -39,11 +40,15 @@ class Session:
         self.last_action_at = last_action_at if last_action_at is not None else now
 
     def to_dict(self):
-        return {attr: getattr(self, attr) for attr in self.__slots__}
+        # Session metadata contains mutable game state (lists and maps).  A
+        # shallow export would let UI/storage callers mutate the live session
+        # and would make router rollback snapshots share the state they are
+        # meant to restore.
+        return copy.deepcopy({attr: getattr(self, attr) for attr in self.__slots__})
 
     @classmethod
     def from_dict(cls, d):
-        return cls(**{k: v for k, v in d.items() if k in cls.__slots__})
+        return cls(**copy.deepcopy({k: v for k, v in d.items() if k in cls.__slots__}))
 
 
 # Legal state transitions: {current_status: {command: new_status}}

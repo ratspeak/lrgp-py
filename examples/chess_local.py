@@ -32,7 +32,7 @@ def main():
 
     app_a = ChessApp()
     app_b = ChessApp()
-    session_id = "local_chess_001"
+    session_id = "10ca1c0e55000001"
 
     print("=== LRGP Chess Local Simulation (Scholar's Mate) ===\n")
 
@@ -40,6 +40,7 @@ def main():
     payload_out, fallback = app_a.handle_outgoing(
         session_id, CMD_CHALLENGE, {}, PLAYER_A
     )
+    app_a.bind_peer(session_id, PLAYER_A, PLAYER_B)
     envelope = pack_envelope("chess", 1, CMD_CHALLENGE, session_id, payload_out)
     print("A: {} (envelope: {} B)".format(fallback, validate_envelope_size(envelope)))
 

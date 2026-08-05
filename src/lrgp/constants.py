@@ -46,6 +46,11 @@ CMD_DRAW_ACCEPT = "draw_accept"
 CMD_DRAW_DECLINE = "draw_decline"
 CMD_ERROR = "error"
 
+ALL_COMMANDS = (
+    CMD_CHALLENGE, CMD_ACCEPT, CMD_DECLINE, CMD_MOVE, CMD_RESIGN,
+    CMD_DRAW_OFFER, CMD_DRAW_ACCEPT, CMD_DRAW_DECLINE, CMD_ERROR,
+)
+
 # Standard error codes
 ERR_UNSUPPORTED_APP = "unsupported_app"
 ERR_INVALID_MOVE = "invalid_move"
@@ -67,8 +72,15 @@ KEY_NONCE = "n"  # required 8-byte per-envelope replay-dedup nonce
 
 # Nonce / dedup
 NONCE_BYTES = 8
+SESSION_ID_HEX_CHARS = 16
 DEDUP_CACHE_PER_SESSION = 512
+DEDUP_CACHE_SESSIONS = 1024
 DEDUP_TTL_SECONDS = 600
+
+# Inbound challenge admission. These limits count only TTL-checked pending
+# sessions; active/terminal games are never evicted to admit strangers.
+PENDING_SESSIONS_PER_IDENTITY_MAX = 128
+PENDING_SESSIONS_PER_PARTICIPANT_MAX = 16
 
 # Error payload keys
 KEY_ERR_CODE = "code"

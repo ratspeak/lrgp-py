@@ -36,7 +36,7 @@ fields[0xFB] = "lrgp.v1"                       # protocol marker
 fields[0xFD] = {                               # envelope
     "a": "ttt.1",                              # app_id.version
     "c": "move",                               # command
-    "s": "a1b2c3d4e5f6g7h8",                   # session_id
+    "s": "a1b2c3d4e5f60718",                   # session_id
     "p": {"i": 4, "b": "____X____", ...},      # payload (game-specific)
     "n": b"\\xde\\xad\\xbe\\xef\\xc0\\xff\\xee\\x01",  # 8-byte CSPRNG nonce
 }
@@ -48,7 +48,38 @@ All envelopes are msgpack-serialized and fit within LXMF's 295-byte OPPORTUNISTI
 
 ### Replay protection
 
-Every outbound envelope carries an 8-byte CSPRNG nonce under key `n`. Receivers run each decoded envelope through `ReplayDedup.check`; the cache is a per-session LRU of `(session_id, nonce)` pairs bounded to 512 entries with a 10-minute TTL. Duplicates return `True` (drop). Drop the per-session cache via `drop_session(session_id)` when a game reaches a terminal state.
+Every outbound envelope carries an 8-byte CSPRNG nonce under key `n`. The
+router first probes without recording, authorizes the authenticated sender,
+then atomically checks and records before application mutation. The cache is
+scoped by receiving identity and session, bounded to 512 nonces per scope and
+1024 scopes, with a 10-minute absolute TTL. This keeps unauthenticated traffic
+from consuming or evicting replay state. Terminal sessions retain replay
+entries through their normal TTL; only explicit session removal may drop that
+identity/session scope.
+
+Use `LrgpRouter` as the protocol boundary. It validates canonical wire data,
+rejects trailing bytes and duplicate map keys in byte-oriented decoding, binds
+each session to its authenticated participant, enforces global session-ID
+uniqueness across apps, and caps unsolicited pending challenges at 16 per
+participant and 128 per receiving identity. Incoming authenticated sender and
+receiving-identity identifiers, and outgoing local identity/recipient
+identifiers, must all be non-empty.
+
+The optional `LrgpTransport` forwards an LXMF `source_hash` only after LXMF
+reports a validated message signature. Custom integrations must likewise pass
+`dispatch_incoming` a sender derived from authenticated transport metadata,
+never a display name, fallback text, or envelope value.
+
+Inbound dispatch changes live game state before the caller commits its durable
+session/action transaction. Snapshot first; if that commit fails, call
+`rollback_incoming(app_id, session_id, identity_id, envelope["n"], snapshot)`.
+This restores the session and releases only the accepted scoped nonce, so the
+transport's exact retransmission can be applied. If durable recording of an
+authenticated `remote_error` fails, call
+`forget_incoming_nonce(identity_id, session_id, envelope["n"])` instead: that
+result consumed a nonce but did not mutate game state. SQLite `save_session`
+is insert-only; use its allowlisted `update_session` method for existing
+records.
 
 ## Project Structure
 
@@ -57,7 +88,7 @@ src/lrgp/
   constants.py     # Protocol constants
   errors.py        # Error hierarchy
   envelope.py      # Pack/unpack/validate envelopes
-  dedup.py         # Per-session replay-dedup cache (8-byte nonce LRU)
+  dedup.py         # Receiving-identity/session replay cache
   session.py       # Session state machine
   app_base.py      # Abstract GameBase for games
   router.py        # App registry and dispatch

@@ -1,4 +1,4 @@
-"""Tests for the per-session replay-dedup cache."""
+"""Tests for the scoped LRGP replay-dedup cache."""
 
 import pytest
 
@@ -8,7 +8,12 @@ from lrgp.constants import KEY_NONCE
 
 
 def _env(session, nonce):
-    return pack_envelope("ttt", 1, "move", session, {}, nonce=nonce)
+    canonical = session if len(session) == 16 else session.encode().hex().ljust(16, "0")[:16]
+    return pack_envelope("ttt", 1, "move", canonical, {}, nonce=nonce)
+
+
+def _sid(session):
+    return session if len(session) == 16 else session.encode().hex().ljust(16, "0")[:16]
 
 
 class TestFirstSightingAccepted:
@@ -36,6 +41,17 @@ class TestReplayDetection:
         d = ReplayDedup()
         assert d.check(_env("s1", b"\x33" * 8)) is False
         assert d.check(_env("s1", b"\x44" * 8)) is False
+
+    def test_fresh_probe_does_not_record_or_evict(self):
+        d = ReplayDedup(max_per_session=1)
+        recorded = _env("s1", b"\x31" * 8)
+        untrusted = _env("s1", b"\x32" * 8)
+        assert d.check(recorded) is False
+
+        assert d.probe(untrusted) is False
+
+        assert d.probe(recorded) is True
+        assert d.check(recorded) is True
 
 
 class TestLruEviction:
@@ -72,7 +88,7 @@ class TestDropSession:
         d = ReplayDedup()
         n = b"\x55" * 8
         assert d.check(_env("s1", n)) is False
-        d.drop_session("s1")
+        d.drop_session(_sid("s1"))
         # Same nonce after session closes should be accepted again (new session).
         assert d.check(_env("s1", n)) is False
 

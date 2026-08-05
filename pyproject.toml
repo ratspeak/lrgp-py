@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lrgp"
-version = "0.3.0"
+version = "0.4.0"
 description = "Lightweight Reticulum Gaming Protocol — multiplayer games over LXMF mesh networks"
 readme = "README.md"
 license = "MIT"

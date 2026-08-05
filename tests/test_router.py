@@ -4,6 +4,9 @@ import pytest
 from lrgp.router import register, unregister, get_app, list_apps, dispatch_incoming, dispatch_outgoing
 from lrgp.errors import UnknownApp
 from lrgp.apps.tictactoe import TicTacToeApp
+from lrgp.envelope import pack_envelope
+
+SESSION = "0123456789abcdef"
 
 
 @pytest.fixture(autouse=True)
@@ -50,15 +53,15 @@ class TestDispatch:
     def test_dispatch_incoming_unknown_app(self):
         with pytest.raises(UnknownApp):
             dispatch_incoming(
-                {"a": "unknown.1", "c": "challenge", "s": "abc", "p": {}},
-                "sender123",
+                pack_envelope("unknown", 1, "challenge", SESSION, {}),
+                "sender123", "local_identity",
             )
 
     def test_dispatch_incoming_challenge(self):
         app = TicTacToeApp()
         register(app)
         result = dispatch_incoming(
-            {"a": "ttt.1", "c": "challenge", "s": "abc123", "p": {}},
+            pack_envelope("ttt", 1, "challenge", SESSION, {}),
             "sender_hash", "my_id",
         )
         assert result is not None
@@ -67,13 +70,16 @@ class TestDispatch:
 
     def test_dispatch_outgoing_unknown_app(self):
         with pytest.raises(UnknownApp):
-            dispatch_outgoing("unknown", "challenge", {}, "abc")
+            dispatch_outgoing(
+                "unknown", "accept", {}, SESSION, "local_identity"
+            )
 
     def test_dispatch_outgoing_challenge(self):
         app = TicTacToeApp()
         register(app)
-        envelope, fallback, delivery = dispatch_outgoing(
-            "ttt", "challenge", {}, "sess123", "my_id",
+        from lrgp.router import dispatch_outgoing_to
+        envelope, fallback, delivery = dispatch_outgoing_to(
+            "ttt", "challenge", {}, SESSION, "my_id", "peer_hash",
         )
         assert envelope["a"] == "ttt.1"
         assert envelope["c"] == "challenge"

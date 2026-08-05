@@ -1,5 +1,7 @@
-"""Tests for RLAP SQLite store."""
+"""Tests for LRGP SQLite store."""
 
+import sqlite3
+import threading
 import time
 import pytest
 from lrgp.store import LrgpStore
@@ -63,6 +65,23 @@ class TestSessionCRUD:
         assert store.get_session("s1", "id1") is None
         assert store.get_actions("s1", "id1") == []
 
+    def test_delete_session_and_actions_roll_back_as_one_transaction(self, store):
+        s = Session(session_id="s1", identity_id="id1", app_id="ttt",
+                    contact_hash="c1")
+        store.save_session(s)
+        store.save_action("s1", "id1", 1, "challenge", {}, "sender1")
+        store._get_conn().execute(
+            """CREATE TRIGGER reject_action_delete
+               BEFORE DELETE ON game_actions
+               BEGIN SELECT RAISE(ABORT, 'test rollback'); END"""
+        )
+
+        with pytest.raises(sqlite3.IntegrityError):
+            store.delete_session("s1", "id1")
+
+        assert store.get_session("s1", "id1") is not None
+        assert len(store.get_actions("s1", "id1")) == 1
+
     def test_save_session_from_dict(self, store):
         d = {
             "session_id": "s1", "identity_id": "id1", "app_id": "ttt",
@@ -72,6 +91,74 @@ class TestSessionCRUD:
         store.save_session(d)
         result = store.get_session("s1", "id1")
         assert result["metadata"]["key"] == "val"
+
+    def test_update_rejects_unknown_or_immutable_identifier(self, store):
+        store.save_session(Session(
+            session_id="s1", identity_id="id1", app_id="ttt",
+            contact_hash="c1",
+        ))
+        with pytest.raises(ValueError):
+            store.update_session("s1", "id1", **{"status = 'active' --": "x"})
+        with pytest.raises(ValueError):
+            store.update_session("s1", "id1", contact_hash="attacker")
+        assert store.get_session("s1", "id1")["contact_hash"] == "c1"
+
+    def test_duplicate_save_cannot_replace_established_session(self, store):
+        original = Session(
+            session_id="s1", identity_id="id1", app_id="ttt",
+            contact_hash="peer", initiator="me", status="pending",
+        )
+        store.save_session(original)
+        for changed in (
+            Session(session_id="s1", identity_id="id1", app_id="chess",
+                    contact_hash="peer", initiator="me"),
+            Session(session_id="s1", identity_id="id1", app_id="ttt",
+                    contact_hash="attacker", initiator="me"),
+            Session(session_id="s1", identity_id="id1", app_id="ttt",
+                    contact_hash="peer", initiator="attacker"),
+        ):
+            with pytest.raises(sqlite3.IntegrityError):
+                store.save_session(changed)
+        assert store.get_session("s1", "id1")["contact_hash"] == "peer"
+
+    def test_duplicate_save_fails_and_explicit_update_mutates_allowlist(self, store):
+        original = Session(
+            session_id="s1", identity_id="id1", app_id="ttt",
+            contact_hash="peer", initiator="me", status="pending",
+            created_at=10,
+        )
+        store.save_session(original)
+        updated = Session.from_dict(original.to_dict())
+        updated.status = "active"
+        updated.metadata = {"board": "_________"}
+        updated.created_at = 99
+        with pytest.raises(sqlite3.IntegrityError):
+            store.save_session(updated)
+        unchanged = store.get_session("s1", "id1")
+        assert unchanged["status"] == "pending"
+        assert unchanged["metadata"] == {}
+        assert unchanged["created_at"] == 10
+
+        store.update_session(
+            "s1", "id1", status="active", metadata={"board": "_________"}
+        )
+        stored = store.get_session("s1", "id1")
+        assert stored["status"] == "active"
+        assert stored["metadata"] == {"board": "_________"}
+        assert stored["created_at"] == 10
+
+    def test_memory_store_is_shared_across_threads(self, store):
+        store.save_session(Session(
+            session_id="s1", identity_id="id1", app_id="ttt",
+            contact_hash="peer",
+        ))
+        seen = []
+        thread = threading.Thread(
+            target=lambda: seen.append(store.get_session("s1", "id1"))
+        )
+        thread.start()
+        thread.join()
+        assert seen[0]["app_id"] == "ttt"
 
 
 class TestActionCRUD:
@@ -95,3 +182,12 @@ class TestActionCRUD:
         store.save_action("s1", "id1", 2, "accept", {}, "b")
         actions = store.get_actions("s1", "id1")
         assert [a["action_num"] for a in actions] == [1, 2, 3]
+
+    def test_duplicate_action_number_never_overwrites_history(self, store):
+        store.save_action("s1", "id1", 1, "challenge", {}, "sender1")
+        with pytest.raises(sqlite3.IntegrityError):
+            store.save_action("s1", "id1", 1, "move", {"i": 4}, "sender2")
+        actions = store.get_actions("s1", "id1")
+        assert len(actions) == 1
+        assert actions[0]["command"] == "challenge"
+        assert actions[0]["sender"] == "sender1"
