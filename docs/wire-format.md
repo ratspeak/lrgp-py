@@ -88,6 +88,27 @@ Same structure, payload's `"x"` becomes `"win"`, `"r"` (reason) is set, `"w"` ca
   a1 6e  c4 08 <nonce>
 ```
 
+### Four in a Row move (gravity-reconstructed)
+
+```text
+85                          # fixmap(5)
+  a1 61  af 66 6f 75 72 5f 69 6e 5f 61 5f 72 6f 77 2e 31
+                              # "a": "four_in_a_row.1"
+  a1 63  a4 6d 6f 76 65     # "c": "move"
+  a1 73  b0 ...             # "s": session_id
+  a1 70                     # "p":
+  83                        # fixmap(3)
+    a1 63  03               # "c": column 3
+    a1 6e  01               # "n": first move (1-based)
+    a1 78  a0               # "x": "" (not terminal)
+  a1 6e  c4 08 <nonce>      # envelope nonce
+```
+
+The move payload intentionally omits the 42-character board and next-turn
+identity. Both peers reconstruct the gravity landing and turn locally. A
+winning move changes `x` to `"win"` and adds `w` with the authenticated
+mover's identity; a drawn move changes only `x` to `"draw"`.
+
 ## Size Budget
 
 | Component | Budget |
@@ -97,7 +118,9 @@ Same structure, payload's `"x"` becomes `"win"`, `"r"` (reason) is set, `"w"` ca
 | Full LXMF content | max 319 B (DIRECT/PROPAGATED packet) |
 | LXMF overhead | 112 B (hashes + signature + timestamp) |
 
-Every TTT and Chess action fits comfortably within OPPORTUNISTIC limits — worst-case observed across the canonical test vectors is ~110 B for a chess checkmate envelope (carrying winner hash + reason code + nonce).
+Every built-in action fits comfortably within OPPORTUNISTIC limits. The
+canonical Four in a Row winning-move vector is 108 bytes with a 32-character
+winner identity, while still omitting the board and turn.
 
 ## Key Ordering
 

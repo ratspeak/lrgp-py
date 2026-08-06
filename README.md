@@ -4,6 +4,10 @@ Python implementation of the **Lightweight Reticulum Gaming Protocol (LRGP)** �
 
 LRGP enables turn-based and real-time multiplayer games to run over LoRa radios, WiFi, TCP, and any other medium Reticulum supports. Game moves are encoded as tiny msgpack envelopes that fit in a single encrypted packet — no link setup needed.
 
+LRGP now has three built-in apps. Tic-Tac-Toe and the new **Four in a Row**
+app are dependency-free; Chess is available through the optional `chess`
+dependency.
+
 ## Quick Start
 
 ```bash
@@ -19,6 +23,9 @@ pytest
 
 # Play Tic-Tac-Toe locally (no network needed)
 python examples/ttt_local.py
+
+# Inspect the built-in Four in a Row manifest (no extra dependency)
+python -c "from lrgp.apps import FourInARowApp; print(FourInARowApp().get_manifest())"
 
 # Walk Scholar's Mate locally
 python examples/chess_local.py
@@ -43,6 +50,12 @@ fields[0xFD] = {                               # envelope
 ```
 
 The LXMF `content` field carries fallback text (e.g., `"[LRGP TTT] Move 3"` or `"[LRGP Chess] e2e4"`) for non-LRGP clients.
+
+Four in a Row uses `four_in_a_row.1`. Its move intent is just `{"c": 0}`;
+the canonical wire move is `{"c": 0, "n": 1, "x": ""}`. Both peers apply
+gravity and reconstruct the 42-cell board and next turn locally, so neither a
+board snapshot nor a turn identity is sent with a move. A winning move alone
+adds `"w"`, set to the authenticated mover.
 
 All envelopes are msgpack-serialized and fit within LXMF's 295-byte OPPORTUNISTIC delivery limit — no link setup needed, single encrypted packet.
 
@@ -95,6 +108,7 @@ src/lrgp/
   store.py         # SQLite persistence
   transport.py     # LXMF bridge (optional, requires lrgp[rns])
   apps/
+    four_in_a_row.py # Four in a Row (7x6 gravity, reconstructed state)
     tictactoe.py   # Tic-Tac-Toe reference game
     chess.py       # Chess (python-chess engine, UCI wire format; lrgp[chess])
 ```
@@ -119,6 +133,8 @@ class MyGame(GameBase):
 ## Protocol Spec
 
 See [SPEC.md](SPEC.md) for the formal protocol specification — implementable without seeing the Python code.
+The game-specific design is summarized in
+[docs/four-in-a-row.md](docs/four-in-a-row.md).
 
 ## Network Usage
 

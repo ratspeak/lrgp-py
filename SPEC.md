@@ -598,3 +598,70 @@ A move that delivers checkmate carries `x="win"`, `r="cm"`, and `w` = the mating
 ### Engine Notes
 
 The reference Rust implementation uses [cozy-chess](https://crates.io/crates/cozy-chess); the reference Python implementation uses [python-chess](https://pypi.org/project/chess/). Any chess library that implements legal-move generation, checkmate / stalemate / insufficient-material detection, and threefold / fifty-move-rule predicates can be substituted as long as it produces canonical UCI strings.
+
+---
+
+## C. Four in a Row Reference Game
+
+Four in a Row (`four_in_a_row.1`) is the third built-in game. It has two
+players, session type `turn_based`, and validation `both`. The board has seven
+columns and six rows. Local state encodes it as exactly 42 characters in
+row-major, top-to-bottom order using `_`, `A`, and `B`. The challenger owns
+`A` and always moves first; the responder owns `B`.
+
+### Compact reconstruction model
+
+A move communicates a column, not a board snapshot. Both peers independently
+find the lowest empty cell in that column, derive the marker from the one-based
+move number, recompute the terminal state, and derive the next turn. A move
+MUST NOT carry either the board or a next-turn identity.
+
+### Payload schema
+
+| Key | Type | Used in | Description |
+|-----|------|---------|-------------|
+| `c` | int | move | Column from 0 through 6 |
+| `n` | int | move | Monotonic move number, 1-based |
+| `x` | str | move | Exactly `""`, `"win"`, or `"draw"` |
+| `w` | str | winning move | Authenticated mover/winner identity |
+| `t` | str | accept | Challenger/first-turn identity |
+
+Inbound wire payloads MUST have exactly these shapes:
+
+| Command | Exact wire payload |
+|---------|--------------------|
+| `challenge` | `{}` |
+| `accept` | `{t}` where `t` equals the stored challenger identity |
+| `decline` | `{}` |
+| non-terminal `move` | `{c, n, x}` with `x=""` |
+| winning `move` | `{c, n, x, w}` with `x="win"` and `w` equal to the authenticated mover |
+| drawn `move` | `{c, n, x}` with `x="draw"` |
+| `resign` | `{}` |
+| `draw_offer` | `{}` |
+| `draw_accept` | `{}` |
+| `draw_decline` | `{}` |
+
+The local outgoing API accepts exactly `{c}` for `move` and `{}` for the
+other lifecycle actions. The game implementation derives `n`, `x`, and `w`.
+`error` uses the global schema in Section 9.
+
+### Local metadata and restoration
+
+Both implementations expose the following local metadata keys: `board`,
+`turn`, `first_turn`, `my_marker`, `first_marker`, `second_marker`,
+`move_count`, `last_column`, `last_row`, `last_cell`, `winner`, `terminal`,
+`draw_offered`, and `draw_offered_by`. The three last-move fields are null
+before the first move; afterward they identify the gravity landing position,
+with `last_cell = last_row * 7 + last_column`.
+
+Hydration MUST reject state whose gravity, `A`/`B` counts, move count, turn
+parity, last-move coordinates, terminal result, winner identity, or draw-offer
+ownership disagree. A completed `draw` may represent either a full no-win
+board or an earlier negotiated draw. A completed `resign` requires a bound
+winner and a board that was not already terminal. For a completed board win,
+the recorded last marker MUST belong to the winner and removing that marker
+MUST remove all winning lines.
+
+An expiry transition MUST clear `draw_offered` and `draw_offered_by` for this
+game before the expired record is exposed or persisted. Hydration MUST perform
+the same normalization for an already-expired legacy record.

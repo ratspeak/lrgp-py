@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Four in a Row (`four_in_a_row.1`)** — third built-in game, with a
+  dependency-free 7-column by 6-row gravity engine, fixed challenger-first
+  `A`/`B` roles, both-side validation, negotiated draws, semantic session
+  hydration, and compact `{c,n,x}` moves that reconstruct board and turn
+  locally. Deterministic binary fixtures are shared with `lrgp-rs`.
+
 ## 0.4.0 — 2026-08-04
 
 ### Breaking
