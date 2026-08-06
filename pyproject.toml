@@ -7,7 +7,7 @@ name = "lrgp"
 version = "0.4.0"
 description = "Lightweight Reticulum Gaming Protocol — multiplayer games over LXMF mesh networks"
 readme = "README.md"
-license = "MIT"
+license = { file = "LICENSE" }
 requires-python = ">=3.8"
 dependencies = []
 
