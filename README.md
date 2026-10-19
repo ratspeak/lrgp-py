@@ -4,8 +4,8 @@ Python implementation of the **Lightweight Reticulum Gaming Protocol (LRGP)** â€
 
 LRGP carries game actions in LXMF custom fields over any reachable Reticulum path. The built-in games are turn-based. Each packed game envelope is limited to 200 bytes; title, fallback text, stamps and the rest of LXMF add overhead. The transport chooses packet or Link delivery for the complete message.
 
-This checkout declares **0.4.0** and includes three built-in apps. Tic-Tac-Toe and **Four in a Row**
-are dependency-free; Chess is available through the optional `chess`
+This checkout declares **0.4.0** and includes four built-in apps. Tic-Tac-Toe, **Four in a Row**
+and **Checkers** are dependency-free; Chess is available through the optional `chess`
 dependency.
 
 ## Quick Start
@@ -28,6 +28,9 @@ python examples/ttt_local.py
 
 # Inspect the built-in Four in a Row manifest (no extra dependency)
 python -c "from lrgp.apps import FourInARowApp; print(FourInARowApp().get_manifest())"
+
+# Inspect the built-in Checkers manifest (no extra dependency)
+python -c "from lrgp.apps import CheckersApp; print(CheckersApp().get_manifest())"
 
 # Walk Scholar's Mate locally
 python examples/chess_local.py
@@ -64,6 +67,12 @@ board snapshot nor a turn identity is sent with a move. A winning move alone
 adds `"w"`, set to the authenticated mover.
 
 Use the game router to construct canonical payloads from local intent. The wire sketch above is explanatory; participant identifiers come from authenticated transport metadata, and transport sizing must cover the complete LXMF message.
+
+Checkers uses `checkers.1`. Its move intent is a space-separated square path
+such as `{"m": "a5 c3 e1"}`; the canonical wire move is
+`{"m": "a5 c3 e1", "n": 12, "x": ""}`. Each peer replays the path history to
+rebuild the board, so neither the board nor the next turn is sent. See
+[docs/checkers.md](docs/checkers.md).
 
 ### Replay protection
 
@@ -122,6 +131,7 @@ src/lrgp/
   store.py         # SQLite persistence
   transport.py     # LXMF bridge (optional, requires lrgp[rns])
   apps/
+    checkers.py    # Checkers (English draughts, square-path wire format)
     four_in_a_row.py # Four in a Row (7x6 gravity, reconstructed state)
     tictactoe.py   # Tic-Tac-Toe reference game
     chess.py       # Chess (python-chess engine, UCI wire format; lrgp[chess])

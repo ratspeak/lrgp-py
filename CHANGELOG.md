@@ -4,6 +4,14 @@
 
 ### Added
 
+- **Checkers (`checkers.1`)** — fourth built-in game: dependency-free
+  American checkers / English draughts with mandatory captures, completed
+  multi-jumps, crowning that ends the move, both-side validation by replay,
+  and claim-based threefold-repetition and forty-move draws. Moves carry a
+  space-separated square path such as `a5 c3 e1` in `{m, n, x}` (plus `r`/`w`
+  for a win). Hydration replays the stored history. Binary fixtures and a
+  33-ply reference game are shared with `lrgp-rs`.
+
 - **Four in a Row (`four_in_a_row.1`)** — third built-in game, with a
   dependency-free 7-column by 6-row gravity engine, fixed challenger-first
   `A`/`B` roles, both-side validation, negotiated draws, semantic session

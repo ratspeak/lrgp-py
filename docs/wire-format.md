@@ -106,6 +106,28 @@ identity. Both peers reconstruct the gravity landing and turn locally. A
 winning move changes `x` to `"win"` and adds `w` with the authenticated
 mover's identity; a drawn move changes only `x` to `"draw"`.
 
+### Checkers move (square path, replayed)
+
+```text
+85                          # fixmap(5)
+  a1 61  aa 63 68 65 63 6b 65 72 73 2e 31
+                              # "a": "checkers.1"
+  a1 63  a4 6d 6f 76 65     # "c": "move"
+  a1 73  b0 ...             # "s": session_id
+  a1 70                     # "p":
+  83                        # fixmap(3)
+    a1 6d  a5 66 36 20 67 35
+                              # "m": "f6 g5"
+    a1 6e  00               # "n": 0 (ply, 0-based)
+    a1 78  a0               # "x": "" (not terminal)
+  a1 6e  c4 08 <nonce>      # envelope nonce
+```
+
+A multi-jump lists every landing square (`"a5 c3 e1"`). Each peer replays
+the path history to rebuild the board, so the 64-cell board, legal moves,
+and next turn are never sent. A winning move changes `x` to `"win"` and adds
+`r` (`"np"` or `"nm"`) and `w` with the authenticated mover's identity.
+
 ## Size Budget
 
 The packed envelope has a **200-byte maximum**. That excludes the protocol
@@ -115,8 +137,10 @@ Use its packing checks instead of treating LRGP's legacy 295/319-byte constants
 as current transport limits.
 
 The canonical Four in a Row winning-move fixture has a 108-byte envelope with
-a 32-character winner identity. It omits the board and next turn. Measure other
-payloads, fallback strings and field combinations separately with
+a 32-character winner identity. It omits the board and next turn. A worst-case
+Checkers move (a 13-square path that wins, with a 32-character winner) stays
+under 150 bytes. Measure other payloads, fallback strings and field
+combinations separately with
 [`examples/envelope_sizes.py`](../examples/envelope_sizes.py).
 
 ## Key Ordering
