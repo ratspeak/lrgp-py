@@ -4,8 +4,9 @@ Python implementation of the **Lightweight Reticulum Gaming Protocol (LRGP)** â€
 
 LRGP carries game actions in LXMF custom fields over any reachable Reticulum path. The built-in games are turn-based. Each packed game envelope is limited to 200 bytes; title, fallback text, stamps and the rest of LXMF add overhead. The transport chooses packet or Link delivery for the complete message.
 
-This checkout declares **0.4.0** and includes four built-in apps. Tic-Tac-Toe, **Four in a Row**
-and **Checkers** are dependency-free; Chess is available through the optional `chess`
+This checkout declares **0.4.0** and includes nine built-in apps. Tic-Tac-Toe, Four in a Row, Checkers, and
+the new **Hex**, **Gomoku**, **Reversi**, **Dots and Boxes**, and **Mancala**
+apps are dependency-free; Chess is available through the optional `chess`
 dependency.
 
 ## Quick Start
@@ -74,6 +75,15 @@ such as `{"m": "a5 c3 e1"}`; the canonical wire move is
 rebuild the board, so neither the board nor the next turn is sent. See
 [docs/checkers.md](docs/checkers.md).
 
+Hex (`hex.1`), Gomoku (`gomoku.1`), and Reversi (`reversi.1`) share one wire
+contract: a move intent is a single square such as `{"m": "h8"}` (Hex also
+accepts `{"m": "swap"}` as White's first move) and the wire move is
+`{"m": "h8", "n": 0, "x": ""}`, plus `"w"` on a win. Dots and Boxes
+(`dots_and_boxes.1`) and Mancala (`mancala.1`) use the same contract with a
+line (`{"m": "c3h"}`) or a pit letter (`{"m": "d"}`) as the move; a player who
+completes a box or ends in their store simply moves again. See
+[docs/placement-games.md](docs/placement-games.md).
+
 ### Replay protection
 
 Every outbound envelope carries an 8-byte CSPRNG nonce under key `n`. The
@@ -132,6 +142,12 @@ src/lrgp/
   transport.py     # LXMF bridge (optional, requires lrgp[rns])
   apps/
     checkers.py    # Checkers (English draughts, square-path wire format)
+    _placement.py  # Shared engine for the single-token games below
+    hex.py         # Hex (11x11, swap rule)
+    gomoku.py      # Gomoku (15x15 freestyle)
+    reversi.py     # Reversi (8x8, automatic passing)
+    dots_and_boxes.py # Dots and Boxes (5x5 boxes, extra turns)
+    mancala.py     # Mancala (Kalah, six pits of four seeds)
     four_in_a_row.py # Four in a Row (7x6 gravity, reconstructed state)
     tictactoe.py   # Tic-Tac-Toe reference game
     chess.py       # Chess (python-chess engine, UCI wire format; lrgp[chess])

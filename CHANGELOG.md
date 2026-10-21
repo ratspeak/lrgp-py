@@ -4,6 +4,23 @@
 
 ### Added
 
+- **Hex (`hex.1`), Gomoku (`gomoku.1`), and Reversi (`reversi.1`)** —
+  dependency-free stone-placement games sharing one wire contract: moves are
+  a single square such as `h8` in `{m, n, x}` (plus `w` on a win), and each
+  peer replays the history. Hex is 11x11 with the swap rule, Gomoku is 15x15
+  freestyle, and Reversi passes automatically, so its winner can be the
+  non-mover. Binary fixtures and reference games are shared with `lrgp-rs`.
+
+- **Dots and Boxes (`dots_and_boxes.1`) and Mancala (`mancala.1`)** — two
+  more dependency-free games on the same engine and wire contract. Dots and
+  Boxes is a 5x5-box grid with moves naming a line (`c3h`, `c3v`);
+  completing a box claims it and earns another move. Mancala uses Kalah rules
+  with six pits of four seeds, moves naming a pit (`a`–`l`), extra turns for
+  ending in your store, and captures from an empty pit of your own. Each peer
+  derives who moves next, so extra turns need no message. Reference games
+  (both won by the player who did not move last) and a 24–24 Mancala draw are
+  shared with `lrgp-rs`.
+
 - **Checkers (`checkers.1`)** — fourth built-in game: dependency-free
   American checkers / English draughts with mandatory captures, completed
   multi-jumps, crowning that ends the move, both-side validation by replay,

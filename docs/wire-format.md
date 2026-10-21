@@ -106,6 +106,11 @@ identity. Both peers reconstruct the gravity landing and turn locally. A
 winning move changes `x` to `"win"` and adds `w` with the authenticated
 mover's identity; a drawn move changes only `x` to `"draw"`.
 
+Dots and Boxes and Mancala use the same shape with a different move token:
+a line such as `"m": "c3h"` (from dot c3 to d3) or `"m": "a1v"` (a1 to a2),
+or a Mancala pit letter `a`–`l`. A move that earns another turn looks like
+any other; the receiver's replay decides who moves next.
+
 ### Checkers move (square path, replayed)
 
 ```text
@@ -127,6 +132,27 @@ A multi-jump lists every landing square (`"a5 c3 e1"`). Each peer replays
 the path history to rebuild the board, so the 64-cell board, legal moves,
 and next turn are never sent. A winning move changes `x` to `"win"` and adds
 `r` (`"np"` or `"nm"`) and `w` with the authenticated mover's identity.
+
+### Hex, Gomoku, and Reversi moves (single square, replayed)
+
+```text
+85                          # fixmap(5)
+  a1 61  a8 67 6f 6d 6f 6b 75 2e 31
+                              # "a": "gomoku.1"
+  a1 63  a4 6d 6f 76 65     # "c": "move"
+  a1 73  b0 ...             # "s": session_id
+  a1 70                     # "p":
+  83                        # fixmap(3)
+    a1 6d  a3 68 31 30      # "m": "h10"
+    a1 6e  00               # "n": 0 (ply, 0-based)
+    a1 78  a0               # "x": "" (not terminal)
+  a1 6e  c4 08 <nonce>      # envelope nonce
+```
+
+All three placement games use this shape; Hex also allows `"m": "swap"` at
+`n=1`. A winning move adds `w` with the identity the replayed position names
+as winner (in Reversi, possibly not the mover); a drawn Gomoku or Reversi
+move changes only `x` to `"draw"`.
 
 ## Size Budget
 
