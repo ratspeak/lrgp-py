@@ -244,6 +244,10 @@ class PlacementApp(GameBase):
         metadata["legal_moves"] = self.rules.legal_moves(position)
         self.rules.extra_metadata(position, metadata)
 
+    def _refresh_restored(self, session):
+        """Re-derive an active restored session's metadata from its history."""
+        self._refresh_derived(session.metadata, replay(self.rules, session.metadata["moves"]))
+
     def _start_game(self, session, black):
         """Assign colors and reset the board when a challenge is accepted."""
         metadata = session.metadata
@@ -278,7 +282,9 @@ class PlacementApp(GameBase):
 
         try:
             if command == CMD_CHALLENGE:
-                result = self._handle_challenge_in(session_id, sender_hash, identity_id)
+                result = self._handle_challenge_in(
+                    session_id, payload, sender_hash, identity_id
+                )
             else:
                 session = self.require_live_session(session_id, identity_id)
                 if command == CMD_ACCEPT:
@@ -321,9 +327,9 @@ class PlacementApp(GameBase):
 
     def handle_outgoing(self, session_id, command, payload, identity_id):
         if command == CMD_CHALLENGE:
-            return self._handle_challenge_out(session_id, identity_id)
+            return self._handle_challenge_out(session_id, payload, identity_id)
         if command == CMD_ACCEPT:
-            return self._handle_accept_out(session_id, identity_id)
+            return self._handle_accept_out(session_id, payload, identity_id)
         if command == CMD_MOVE:
             return self._handle_move_out(session_id, payload, identity_id)
         if command in (
@@ -447,7 +453,7 @@ class PlacementApp(GameBase):
                 _clear_draw_offer(metadata)
         self._validate_restored_session(session)
         if session.status == STATUS_ACTIVE:
-            self._refresh_derived(metadata, replay(self.rules, metadata["moves"]))
+            self._refresh_restored(session)
         restored = super().upsert_session(session, now=now)
         if restored.status == STATUS_EXPIRED:
             _clear_draw_offer(restored.metadata)
@@ -573,7 +579,7 @@ class PlacementApp(GameBase):
 
     # --- Incoming handlers ---
 
-    def _handle_challenge_in(self, session_id, sender_hash, identity_id):
+    def _handle_challenge_in(self, session_id, payload, sender_hash, identity_id):
         existing = self._get_session(session_id, identity_id)
         if existing is not None:
             if existing.contact_hash != sender_hash:
@@ -682,7 +688,7 @@ class PlacementApp(GameBase):
 
     # --- Outgoing handlers ---
 
-    def _handle_challenge_out(self, session_id, identity_id):
+    def _handle_challenge_out(self, session_id, payload, identity_id):
         session_id = session_id or _gen_session_id()
         if self._get_session(session_id, identity_id) is None:
             session = Session(
@@ -698,7 +704,7 @@ class PlacementApp(GameBase):
             self._save_session(session)
         return {}, self.render_fallback(CMD_CHALLENGE, {})
 
-    def _handle_accept_out(self, session_id, identity_id):
+    def _handle_accept_out(self, session_id, payload, identity_id):
         session = self._get_session(session_id, identity_id)
         if session is None:
             return {}, "{} Session not found".format(self._prefix())

@@ -13,6 +13,12 @@
   komi. Moves are a point such as `e5` or `pass`; two passes in a row end
   the game and every stone left on the board counts. A reference game won
   on komi is shared with `lrgp-rs`. SPEC.md Appendix G.2 is normative.
+- **Battleship (`battleship.1`)** — the first game with hidden
+  information. Each player commits to a 10x10 fleet with a SHA-256 hash of
+  the fleet and a random salt; every shot carries the answer to the
+  opponent's last shot, and both fleets are revealed at the end so each
+  side checks the other's answers. Uses only the standard library. A
+  reference game is shared with `lrgp-rs`. SPEC.md Appendix H is normative.
 
 - **Hex (`hex.1`), Gomoku (`gomoku.1`), and Reversi (`reversi.1`)** —
   dependency-free stone-placement games sharing one wire contract: moves are

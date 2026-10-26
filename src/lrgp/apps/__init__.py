@@ -1,3 +1,4 @@
+from .battleship import BattleshipApp
 from .checkers import CheckersApp
 from .dots_and_boxes import DotsAndBoxesApp
 from .four_in_a_row import FourInARowApp
@@ -10,6 +11,7 @@ from .tictactoe import TicTacToeApp
 from .ultimate_ttt import UltimateTicTacToeApp
 
 __all__ = [
+    "BattleshipApp",
     "CheckersApp",
     "DotsAndBoxesApp",
     "FourInARowApp",
