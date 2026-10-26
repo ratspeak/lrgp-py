@@ -13,7 +13,7 @@ import sys
 import pytest
 
 from lrgp._msgpack import packb, unpackb
-from lrgp.apps import dots_and_boxes, gomoku, hex as hex_game, mancala, reversi, ultimate_ttt
+from lrgp.apps import dots_and_boxes, go, gomoku, hex as hex_game, mancala, reversi, ultimate_ttt
 from lrgp.apps._placement import (
     BLACK,
     EMPTY,
@@ -25,6 +25,7 @@ from lrgp.apps._placement import (
     square_name,
 )
 from lrgp.apps.dots_and_boxes import DotsAndBoxesApp, DotsAndBoxesRules
+from lrgp.apps.go import GoApp
 from lrgp.apps.gomoku import GomokuApp, GomokuRules
 from lrgp.apps.hex import SWAP, HexApp, HexRules
 from lrgp.apps.mancala import MancalaApp, MancalaRules
@@ -72,6 +73,7 @@ GAMES = {
     "dots_and_boxes": (DotsAndBoxesApp, dots_and_boxes),
     "mancala": (MancalaApp, mancala),
     "ultimate_ttt": (UltimateTicTacToeApp, ultimate_ttt),
+    "go": (GoApp, go),
 }
 
 
@@ -911,6 +913,10 @@ class TestVectors:
         "ultimate_ttt_move_draw.bin": "a3bb4eb36f261cbbc8fd2094d54596de7c267522513f15aa905817fe65b85a7c",
         "ultimate_ttt_move_win.bin": "9b2c666d2af8caae179621b4b3a80ef7c9e01091bb427f345365d87fc4765331",
         "ultimate_ttt_reference.txt": "41c8d98faad227e69047c4845187108f6d53a30bb98525dcd93f4a537fe77e6f",
+        "go_accept.bin": "eb0f225305d05f85b99a9e9a6134dfd42d785c2ec5086a4239bff3b1a8712cce",
+        "go_move.bin": "61e7703eec7814b35da3e6f98c07066b94bd6e1dd863342012b9c0627ea817a2",
+        "go_move_win.bin": "5cdc199d19dfbe175d363c39a829450787732754d6790798a2c7191740cd8060",
+        "go_reference.txt": "95466c2bc151caa9d02e9f2a38f7efea6ff9486d91a4bb45ff61420fe4babfc1",
     }
 
     @staticmethod

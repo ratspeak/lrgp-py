@@ -1,6 +1,7 @@
 from .checkers import CheckersApp
 from .dots_and_boxes import DotsAndBoxesApp
 from .four_in_a_row import FourInARowApp
+from .go import GoApp
 from .gomoku import GomokuApp
 from .hex import HexApp
 from .mancala import MancalaApp
@@ -12,6 +13,7 @@ __all__ = [
     "CheckersApp",
     "DotsAndBoxesApp",
     "FourInARowApp",
+    "GoApp",
     "GomokuApp",
     "HexApp",
     "MancalaApp",

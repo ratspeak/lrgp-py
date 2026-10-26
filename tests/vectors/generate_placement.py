@@ -1,7 +1,7 @@
 """Regenerate the deterministic single-token game cross-language fixtures.
 
-Covers Hex, Gomoku, Reversi, Dots and Boxes, Mancala, and Ultimate
-Tic-Tac-Toe.
+Covers Hex, Gomoku, Reversi, Dots and Boxes, Mancala, Ultimate Tic-Tac-Toe,
+and Go.
 
 Each game has a reference game played by the shared self-play policy
 ``legal[(ply * 7 + seed) % len(legal)]`` with the challenger as Black. Both
@@ -16,6 +16,8 @@ The Dots and Boxes and Mancala games contain extra turns (and double boxes
 and captures) and are also won by White after Black's last move.
 ``mancala_draw.txt`` is the same policy with its own seed, ending 24-24, and
 ``ultimate_ttt_draw.txt`` ends with every small board finished and no line.
+The Go game ends with Black's pass and White winning on komi, although Black
+holds more area.
 """
 
 from pathlib import Path
@@ -26,6 +28,7 @@ sys.path.insert(0, str(REPOSITORY / "src"))
 
 from lrgp._msgpack import packb  # noqa: E402
 from lrgp.apps._placement import play_checked, square_name  # noqa: E402
+from lrgp.apps.go import GoRules  # noqa: E402
 from lrgp.apps.gomoku import (  # noqa: E402
     CELLS as GOMOKU_CELLS,
     SIZE as GOMOKU_SIZE,
@@ -50,6 +53,7 @@ RULES = {
     "dots_and_boxes": DotsAndBoxesRules,
     "mancala": MancalaRules,
     "ultimate_ttt": UltimateRules,
+    "go": GoRules,
 }
 SEEDS = {
     "hex": 113,
@@ -58,6 +62,7 @@ SEEDS = {
     "dots_and_boxes": 1,
     "mancala": 4,
     "ultimate_ttt": 4,
+    "go": 12,
 }
 # Drawn games played by the same policy with their own seed.
 DRAW_SEEDS = {"mancala": 3, "ultimate_ttt": 19}
