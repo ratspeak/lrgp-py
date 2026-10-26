@@ -4,11 +4,11 @@ Python implementation of the **Lightweight Reticulum Gaming Protocol (LRGP)** â€
 
 LRGP carries game actions in LXMF custom fields over any reachable Reticulum path. The built-in games are turn-based. Each packed game envelope is limited to 200 bytes; title, fallback text, stamps and the rest of LXMF add overhead. The transport chooses packet or Link delivery for the complete message.
 
-This checkout declares **0.4.0** and includes fifteen built-in apps. Tic-Tac-Toe, Four in a Row, Checkers,
+This checkout declares **0.4.0** and includes sixteen built-in apps. Tic-Tac-Toe, Four in a Row, Checkers,
 and the new **Hex**, **Gomoku**, **Reversi**, **Dots and Boxes**,
 **Mancala**, **Ultimate Tic-Tac-Toe**, **Go**, **Battleship**, **Quoridor**,
-**Nine Men's Morris**, and **Breakthrough** apps are dependency-free; Chess
-is available through the optional `chess` dependency.
+**Nine Men's Morris**, **Breakthrough**, and **Amazons** apps are
+dependency-free; Chess is available through the optional `chess` dependency.
 
 ## Quick Start
 
@@ -107,6 +107,9 @@ Nine Men's Morris (`morris.1`) moves place a piece (`{"m": "d2"}`) or slide it
 Breakthrough (`breakthrough.1`) moves are a step written as two squares, such
 as `{"m": "a2b3"}`.
 
+Amazons (`amazons.1`) moves slide an amazon and shoot an arrow, written as
+`{"m": "d1d7/g7"}`.
+
 ### Replay protection
 
 Every outbound envelope carries an 8-byte CSPRNG nonce under key `n`. The
@@ -177,6 +180,7 @@ src/lrgp/
     quoridor.py    # Quoridor (9x9, ten walls each)
     morris.py      # Nine Men's Morris (flying at three)
     breakthrough.py # Breakthrough (8x8, diagonal captures)
+    amazons.py     # Amazons (10x10, queen moves and arrows)
     four_in_a_row.py # Four in a Row (7x6 gravity, reconstructed state)
     tictactoe.py   # Tic-Tac-Toe reference game
     chess.py       # Chess (python-chess engine, UCI wire format; lrgp[chess])

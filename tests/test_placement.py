@@ -14,6 +14,7 @@ import pytest
 
 from lrgp._msgpack import packb, unpackb
 from lrgp.apps import (
+    amazons,
     breakthrough,
     dots_and_boxes,
     go,
@@ -36,6 +37,7 @@ from lrgp.apps._placement import (
     square_name,
     terminal_reason,
 )
+from lrgp.apps.amazons import AmazonsApp
 from lrgp.apps.breakthrough import BreakthroughApp
 from lrgp.apps.dots_and_boxes import DotsAndBoxesApp, DotsAndBoxesRules
 from lrgp.apps.go import GoApp
@@ -92,6 +94,7 @@ GAMES = {
     "quoridor": (QuoridorApp, quoridor),
     "morris": (MorrisApp, morris),
     "breakthrough": (BreakthroughApp, breakthrough),
+    "amazons": (AmazonsApp, amazons),
 }
 
 
@@ -951,6 +954,10 @@ class TestVectors:
         "breakthrough_move.bin": "38dd2d1ffe01c32b09fe1c7630aba984eec116603cf007cc51e9ccc9f83a527d",
         "breakthrough_move_win.bin": "1b0c7e19ae8e4680906768ad076e4e22b7a130f8d16e1dac53d600fcf592ce07",
         "breakthrough_reference.txt": "073e7fcc36188ca8ab59a5b3b87e5213b2c0353fdbddb385edf00c2d6c9d98ea",
+        "amazons_accept.bin": "e7304c4a7ba4a2d37cc18fa5817ff681477dd64dc08525d7c5c998b8640765f4",
+        "amazons_move.bin": "2bbeb49fb58267f5e15b2897b03a96ef2daf27d0679b4a3383869ef06ac92d8a",
+        "amazons_move_win.bin": "69c80f8cd3900bf0fbc3776fc9ad6483320365e7a593b84e0e7dba2c3b4a6770",
+        "amazons_reference.txt": "fd43e811b6cfb4a2531b164afa4193b94cd400a3148f04faaa3452c277577048",
     }
 
     @staticmethod

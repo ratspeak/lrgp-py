@@ -38,6 +38,7 @@ from lrgp.apps.gomoku import (  # noqa: E402
 )
 from lrgp.apps.dots_and_boxes import DotsAndBoxesRules  # noqa: E402
 from lrgp.apps.hex import HexRules  # noqa: E402
+from lrgp.apps.amazons import AmazonsRules  # noqa: E402
 from lrgp.apps.breakthrough import BreakthroughRules  # noqa: E402
 from lrgp.apps.mancala import MancalaRules  # noqa: E402
 from lrgp.apps.morris import MorrisRules  # noqa: E402
@@ -61,6 +62,7 @@ RULES = {
     "quoridor": QuoridorRules,
     "morris": MorrisRules,
     "breakthrough": BreakthroughRules,
+    "amazons": AmazonsRules,
 }
 SEEDS = {
     "hex": 113,
@@ -73,6 +75,7 @@ SEEDS = {
     "quoridor": 63,
     "morris": 30,
     "breakthrough": 18,
+    "amazons": 15,
 }
 # Drawn games played by the same policy with their own seed.
 DRAW_SEEDS = {"mancala": 3, "ultimate_ttt": 19, "quoridor": 0, "morris": 22}
