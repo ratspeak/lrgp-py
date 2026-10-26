@@ -20,6 +20,7 @@ The Go game ends with Black's pass and White winning on komi, although Black
 holds more area.
 """
 
+from functools import lru_cache
 from pathlib import Path
 import sys
 
@@ -38,6 +39,7 @@ from lrgp.apps.gomoku import (  # noqa: E402
 from lrgp.apps.dots_and_boxes import DotsAndBoxesRules  # noqa: E402
 from lrgp.apps.hex import HexRules  # noqa: E402
 from lrgp.apps.mancala import MancalaRules  # noqa: E402
+from lrgp.apps.quoridor import QuoridorRules  # noqa: E402
 from lrgp.apps.reversi import ReversiRules  # noqa: E402
 from lrgp.apps.ultimate_ttt import UltimateRules  # noqa: E402
 from lrgp.envelope import pack_envelope  # noqa: E402
@@ -54,6 +56,7 @@ RULES = {
     "mancala": MancalaRules,
     "ultimate_ttt": UltimateRules,
     "go": GoRules,
+    "quoridor": QuoridorRules,
 }
 SEEDS = {
     "hex": 113,
@@ -63,15 +66,20 @@ SEEDS = {
     "mancala": 4,
     "ultimate_ttt": 4,
     "go": 12,
+    "quoridor": 63,
 }
 # Drawn games played by the same policy with their own seed.
-DRAW_SEEDS = {"mancala": 3, "ultimate_ttt": 19}
+DRAW_SEEDS = {"mancala": 3, "ultimate_ttt": 19, "quoridor": 0}
 
 
 def reference_game(game, seed=None):
     """Play the shared self-play policy to the end; return the move list."""
+    return list(_played(game, SEEDS[game] if seed is None else seed))
+
+
+@lru_cache(maxsize=None)
+def _played(game, seed):
     rules = RULES[game]
-    seed = SEEDS[game] if seed is None else seed
     position = rules.start()
     moves = []
     while not rules.outcome(position)[0]:
@@ -79,7 +87,7 @@ def reference_game(game, seed=None):
         move = legal[(len(moves) * 7 + seed) % len(legal)]
         play_checked(rules, position, move)
         moves.append(move)
-    return moves
+    return tuple(moves)
 
 
 def gomoku_draw_game():

@@ -4,11 +4,11 @@ Python implementation of the **Lightweight Reticulum Gaming Protocol (LRGP)** â€
 
 LRGP carries game actions in LXMF custom fields over any reachable Reticulum path. The built-in games are turn-based. Each packed game envelope is limited to 200 bytes; title, fallback text, stamps and the rest of LXMF add overhead. The transport chooses packet or Link delivery for the complete message.
 
-This checkout declares **0.4.0** and includes twelve built-in apps. Tic-Tac-Toe, Four in a Row, Checkers,
+This checkout declares **0.4.0** and includes thirteen built-in apps. Tic-Tac-Toe, Four in a Row, Checkers,
 and the new **Hex**, **Gomoku**, **Reversi**, **Dots and Boxes**,
-**Mancala**, **Ultimate Tic-Tac-Toe**, **Go**, and **Battleship** apps are
-dependency-free; Chess is available through the optional `chess`
-dependency.
+**Mancala**, **Ultimate Tic-Tac-Toe**, **Go**, **Battleship**, and
+**Quoridor** apps are dependency-free; Chess is available through the
+optional `chess` dependency.
 
 ## Quick Start
 
@@ -98,6 +98,9 @@ at the end so each side checks the other's answers. The local intents are
 `{"f": fleet, "k": salt}` (both optional) to challenge or accept, `{"s": "e5"}`
 to shoot, and `{}` to concede or reveal. SPEC.md Appendix H defines it.
 
+Quoridor (`quoridor.1`) moves step the pawn (`{"m": "e2"}`) or place a wall
+(`{"m": "c3h"}`, `{"m": "c3v"}`).
+
 ### Replay protection
 
 Every outbound envelope carries an 8-byte CSPRNG nonce under key `n`. The
@@ -165,6 +168,7 @@ src/lrgp/
     ultimate_ttt.py # Ultimate Tic-Tac-Toe (nine small boards)
     go.py          # Go (9x9, area scoring, superko)
     battleship.py  # Battleship (10x10, committed fleets)
+    quoridor.py    # Quoridor (9x9, ten walls each)
     four_in_a_row.py # Four in a Row (7x6 gravity, reconstructed state)
     tictactoe.py   # Tic-Tac-Toe reference game
     chess.py       # Chess (python-chess engine, UCI wire format; lrgp[chess])

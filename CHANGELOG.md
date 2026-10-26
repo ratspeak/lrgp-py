@@ -19,6 +19,11 @@
   opponent's last shot, and both fleets are revealed at the end so each
   side checks the other's answers. Uses only the standard library. A
   reference game is shared with `lrgp-rs`. SPEC.md Appendix H is normative.
+- **Quoridor (`quoridor.1`)** — race a pawn across a 9x9 board while
+  placing walls in the other player's way, without ever shutting a pawn in.
+  Moves are a square (`e2`) or a wall (`c3h`, `c3v`); a third repetition
+  draws. A reference game and a draw are shared with `lrgp-rs`. SPEC.md
+  Appendix G.3 is normative.
 
 - **Hex (`hex.1`), Gomoku (`gomoku.1`), and Reversi (`reversi.1`)** —
   dependency-free stone-placement games sharing one wire contract: moves are
