@@ -9,6 +9,7 @@ from .gomoku import GomokuApp
 from .hex import HexApp
 from .mancala import MancalaApp
 from .morris import MorrisApp
+from .pente import PenteApp
 from .quoridor import QuoridorApp
 from .reversi import ReversiApp
 from .tictactoe import TicTacToeApp
@@ -26,6 +27,7 @@ __all__ = [
     "HexApp",
     "MancalaApp",
     "MorrisApp",
+    "PenteApp",
     "QuoridorApp",
     "ReversiApp",
     "TicTacToeApp",

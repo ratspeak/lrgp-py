@@ -38,6 +38,10 @@
   then shoot an arrow that burns a square for good; whoever runs out of
   moves loses. Moves read `d1d7/g7`. A reference game is shared with
   `lrgp-rs`. SPEC.md Appendix G.6 is normative.
+- **Pente (`pente.1`)** — Gomoku on a 19x19 board with captures:
+  flanking two opposing stones removes them, and five in a row or five
+  captured pairs wins. A reference game won on captures is shared with
+  `lrgp-rs`. SPEC.md Appendix G.7 is normative.
 
 - **Hex (`hex.1`), Gomoku (`gomoku.1`), and Reversi (`reversi.1`)** —
   dependency-free stone-placement games sharing one wire contract: moves are

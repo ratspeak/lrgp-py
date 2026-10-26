@@ -42,6 +42,7 @@ from lrgp.apps.amazons import AmazonsRules  # noqa: E402
 from lrgp.apps.breakthrough import BreakthroughRules  # noqa: E402
 from lrgp.apps.mancala import MancalaRules  # noqa: E402
 from lrgp.apps.morris import MorrisRules  # noqa: E402
+from lrgp.apps.pente import PenteRules  # noqa: E402
 from lrgp.apps.quoridor import QuoridorRules  # noqa: E402
 from lrgp.apps.reversi import ReversiRules  # noqa: E402
 from lrgp.apps.ultimate_ttt import UltimateRules  # noqa: E402
@@ -63,6 +64,7 @@ RULES = {
     "morris": MorrisRules,
     "breakthrough": BreakthroughRules,
     "amazons": AmazonsRules,
+    "pente": PenteRules,
 }
 SEEDS = {
     "hex": 113,
@@ -76,6 +78,7 @@ SEEDS = {
     "morris": 30,
     "breakthrough": 18,
     "amazons": 15,
+    "pente": 13,
 }
 # Drawn games played by the same policy with their own seed.
 DRAW_SEEDS = {"mancala": 3, "ultimate_ttt": 19, "quoridor": 0, "morris": 22}

@@ -22,6 +22,7 @@ from lrgp.apps import (
     hex as hex_game,
     mancala,
     morris,
+    pente,
     quoridor,
     reversi,
     ultimate_ttt,
@@ -45,6 +46,7 @@ from lrgp.apps.gomoku import GomokuApp, GomokuRules
 from lrgp.apps.hex import SWAP, HexApp, HexRules
 from lrgp.apps.mancala import MancalaApp, MancalaRules
 from lrgp.apps.morris import MorrisApp
+from lrgp.apps.pente import PenteApp
 from lrgp.apps.quoridor import QuoridorApp
 from lrgp.apps.reversi import ReversiApp, ReversiRules
 from lrgp.apps.ultimate_ttt import UltimateTicTacToeApp
@@ -95,6 +97,7 @@ GAMES = {
     "morris": (MorrisApp, morris),
     "breakthrough": (BreakthroughApp, breakthrough),
     "amazons": (AmazonsApp, amazons),
+    "pente": (PenteApp, pente),
 }
 
 
@@ -958,6 +961,10 @@ class TestVectors:
         "amazons_move.bin": "2bbeb49fb58267f5e15b2897b03a96ef2daf27d0679b4a3383869ef06ac92d8a",
         "amazons_move_win.bin": "69c80f8cd3900bf0fbc3776fc9ad6483320365e7a593b84e0e7dba2c3b4a6770",
         "amazons_reference.txt": "fd43e811b6cfb4a2531b164afa4193b94cd400a3148f04faaa3452c277577048",
+        "pente_accept.bin": "2ac3c9e9d8d58aaa295e2107d90936b542b9f2f0d5b83cea48bc1b81d95a4c26",
+        "pente_move.bin": "0ac6b1cea9aa3d4eddd01d3ba77f122d3618597ddeb829f32706cb8db1a43722",
+        "pente_move_win.bin": "72cc7d18e1882ecb96bc64f0370da0695819ed8eb951c682d35854855c84c462",
+        "pente_reference.txt": "24a5c6daa26319d2f3f48cae996080305cfff191c9a69715988c0d9f80be096d",
     }
 
     @staticmethod
