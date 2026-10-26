@@ -6,6 +6,7 @@ from .hex import HexApp
 from .mancala import MancalaApp
 from .reversi import ReversiApp
 from .tictactoe import TicTacToeApp
+from .ultimate_ttt import UltimateTicTacToeApp
 
 __all__ = [
     "CheckersApp",
@@ -16,6 +17,7 @@ __all__ = [
     "MancalaApp",
     "ReversiApp",
     "TicTacToeApp",
+    "UltimateTicTacToeApp",
 ]
 
 # Chess is gated behind the [chess] extra to keep the core lib zero-deps.

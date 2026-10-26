@@ -1,6 +1,7 @@
 """Regenerate the deterministic single-token game cross-language fixtures.
 
-Covers Hex, Gomoku, Reversi, Dots and Boxes, and Mancala.
+Covers Hex, Gomoku, Reversi, Dots and Boxes, Mancala, and Ultimate
+Tic-Tac-Toe.
 
 Each game has a reference game played by the shared self-play policy
 ``legal[(ply * 7 + seed) % len(legal)]`` with the challenger as Black. Both
@@ -13,7 +14,8 @@ Hex's seed makes White swap at ply 1. Reversi's game contains an automatic
 pass (ply 56) and ends with White winning on count after Black's last move.
 The Dots and Boxes and Mancala games contain extra turns (and double boxes
 and captures) and are also won by White after Black's last move.
-``mancala_draw.txt`` is the same policy with its own seed, ending 24-24.
+``mancala_draw.txt`` is the same policy with its own seed, ending 24-24, and
+``ultimate_ttt_draw.txt`` ends with every small board finished and no line.
 """
 
 from pathlib import Path
@@ -34,6 +36,7 @@ from lrgp.apps.dots_and_boxes import DotsAndBoxesRules  # noqa: E402
 from lrgp.apps.hex import HexRules  # noqa: E402
 from lrgp.apps.mancala import MancalaRules  # noqa: E402
 from lrgp.apps.reversi import ReversiRules  # noqa: E402
+from lrgp.apps.ultimate_ttt import UltimateRules  # noqa: E402
 from lrgp.envelope import pack_envelope  # noqa: E402
 
 SESSION = "0123456789abcdef"
@@ -46,9 +49,18 @@ RULES = {
     "reversi": ReversiRules,
     "dots_and_boxes": DotsAndBoxesRules,
     "mancala": MancalaRules,
+    "ultimate_ttt": UltimateRules,
 }
-SEEDS = {"hex": 113, "gomoku": 219, "reversi": 12, "dots_and_boxes": 1, "mancala": 4}
-MANCALA_DRAW_SEED = 3
+SEEDS = {
+    "hex": 113,
+    "gomoku": 219,
+    "reversi": 12,
+    "dots_and_boxes": 1,
+    "mancala": 4,
+    "ultimate_ttt": 4,
+}
+# Drawn games played by the same policy with their own seed.
+DRAW_SEEDS = {"mancala": 3, "ultimate_ttt": 19}
 
 
 def reference_game(game, seed=None):
@@ -83,7 +95,8 @@ def gomoku_draw_game():
 def move_lists():
     lists = {"{}_reference.txt".format(game): reference_game(game) for game in RULES}
     lists["gomoku_draw.txt"] = gomoku_draw_game()
-    lists["mancala_draw.txt"] = reference_game("mancala", MANCALA_DRAW_SEED)
+    for game, seed in DRAW_SEEDS.items():
+        lists["{}_draw.txt".format(game)] = reference_game(game, seed)
     return lists
 
 
@@ -118,7 +131,7 @@ def vectors():
         {"m": "swap", "n": 1, "x": ""},
         bytes.fromhex("030405060708090a"),
     )
-    for game in ("gomoku", "mancala"):
+    for game in ("gomoku",) + tuple(DRAW_SEEDS):
         draw = lists["{}_draw.txt".format(game)]
         result["{}_move_draw.bin".format(game)] = (
             game,

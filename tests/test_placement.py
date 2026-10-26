@@ -1,6 +1,8 @@
 """Protocol, rule, persistence, and interop tests for the single-token games.
 
-Covers Hex, Gomoku, Reversi, Dots and Boxes, and Mancala.
+Covers Hex, Gomoku, Reversi, Dots and Boxes, and Mancala here; the newer
+games keep their rule tests in their own files and join the shared lifecycle,
+hydration, and vector tests through ``GAMES``.
 """
 
 import copy
@@ -11,7 +13,7 @@ import sys
 import pytest
 
 from lrgp._msgpack import packb, unpackb
-from lrgp.apps import dots_and_boxes, gomoku, hex as hex_game, mancala, reversi
+from lrgp.apps import dots_and_boxes, gomoku, hex as hex_game, mancala, reversi, ultimate_ttt
 from lrgp.apps._placement import (
     BLACK,
     EMPTY,
@@ -27,6 +29,7 @@ from lrgp.apps.gomoku import GomokuApp, GomokuRules
 from lrgp.apps.hex import SWAP, HexApp, HexRules
 from lrgp.apps.mancala import MancalaApp, MancalaRules
 from lrgp.apps.reversi import ReversiApp, ReversiRules
+from lrgp.apps.ultimate_ttt import UltimateTicTacToeApp
 from lrgp.constants import (
     CMD_ACCEPT,
     CMD_CHALLENGE,
@@ -68,6 +71,7 @@ GAMES = {
     "reversi": (ReversiApp, reversi),
     "dots_and_boxes": (DotsAndBoxesApp, dots_and_boxes),
     "mancala": (MancalaApp, mancala),
+    "ultimate_ttt": (UltimateTicTacToeApp, ultimate_ttt),
 }
 
 
@@ -901,6 +905,12 @@ class TestVectors:
         "mancala_move_draw.bin": "07560a7ce377ecf8ae8793fbfac3eb6c94a444c462b87a2dddc634b7d5375f79",
         "mancala_reference.txt": "8a33c3d6305ec2ca8df58a2c1e9c435c6becd31b6f7e0a1bf8a7c8f9cf8a069a",
         "mancala_draw.txt": "f7a5bbdf0bfea348e4c05c598095768986d91b8b7616a84fbd8669994762cf15",
+        "ultimate_ttt_accept.bin": "0c62f4225a749075853c7338194df4f1b46bff9e8905543b9d13cba52a8b32c3",
+        "ultimate_ttt_draw.txt": "64b50991d474f6b260f20b60abf63cecf4187f02e6aa41c3bb8c74507bb932db",
+        "ultimate_ttt_move.bin": "c0bfed255122162ef21c06d9b807abec75f9d0dc5155531dfa7451cff706eff6",
+        "ultimate_ttt_move_draw.bin": "a3bb4eb36f261cbbc8fd2094d54596de7c267522513f15aa905817fe65b85a7c",
+        "ultimate_ttt_move_win.bin": "9b2c666d2af8caae179621b4b3a80ef7c9e01091bb427f345365d87fc4765331",
+        "ultimate_ttt_reference.txt": "41c8d98faad227e69047c4845187108f6d53a30bb98525dcd93f4a537fe77e6f",
     }
 
     @staticmethod
@@ -1003,7 +1013,7 @@ class TestVectors:
             assert session.metadata["legal_moves"] == []
             app_class().upsert_session(session.to_dict())
 
-    @pytest.mark.parametrize(("name", "reason"), [("gomoku", "ful"), ("mancala", "cnt")])
+    @pytest.mark.parametrize(("name", "reason"), [("gomoku", "ful"), ("mancala", "cnt"), ("ultimate_ttt", "ful")])
     def test_draw_game_converges_through_both_peers(self, name, reason):
         app_class, module = GAMES[name]
         module.force_coin(True)
