@@ -30,6 +30,10 @@
   Repetition and 100 quiet plies draw. A reference game and a draw are
   shared with `lrgp-rs`. SPEC.md Appendix G.4 is normative. Single-token
   rules can now give more than one win or draw reason.
+- **Breakthrough (`breakthrough.1`)** — two rows of pieces each on an 8x8
+  board, stepping forward and capturing diagonally; the first piece to the
+  far rank wins. Moves read `a2b3`. A reference game is shared with
+  `lrgp-rs`. SPEC.md Appendix G.5 is normative.
 
 - **Hex (`hex.1`), Gomoku (`gomoku.1`), and Reversi (`reversi.1`)** —
   dependency-free stone-placement games sharing one wire contract: moves are

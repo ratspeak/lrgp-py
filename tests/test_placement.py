@@ -14,6 +14,7 @@ import pytest
 
 from lrgp._msgpack import packb, unpackb
 from lrgp.apps import (
+    breakthrough,
     dots_and_boxes,
     go,
     gomoku,
@@ -35,6 +36,7 @@ from lrgp.apps._placement import (
     square_name,
     terminal_reason,
 )
+from lrgp.apps.breakthrough import BreakthroughApp
 from lrgp.apps.dots_and_boxes import DotsAndBoxesApp, DotsAndBoxesRules
 from lrgp.apps.go import GoApp
 from lrgp.apps.gomoku import GomokuApp, GomokuRules
@@ -89,6 +91,7 @@ GAMES = {
     "go": (GoApp, go),
     "quoridor": (QuoridorApp, quoridor),
     "morris": (MorrisApp, morris),
+    "breakthrough": (BreakthroughApp, breakthrough),
 }
 
 
@@ -944,6 +947,10 @@ class TestVectors:
         "morris_move_draw.bin": "f7e0591c6ec960e640d0fa5a3fe542e6192c84c3fc129314485b212953169ddc",
         "morris_move_win.bin": "8d9da863c261f7a8ef0fe8ca9542b73b30d64293aeb7104721862031e9accdd5",
         "morris_reference.txt": "0cbd4edd67ef07ffd7f86d7aa912b6b905ea5613ca396086615f3b4a58fbcd5a",
+        "breakthrough_accept.bin": "98ecee0e34125871243ebb77815159b977340cabd5efea1277017b0685549777",
+        "breakthrough_move.bin": "38dd2d1ffe01c32b09fe1c7630aba984eec116603cf007cc51e9ccc9f83a527d",
+        "breakthrough_move_win.bin": "1b0c7e19ae8e4680906768ad076e4e22b7a130f8d16e1dac53d600fcf592ce07",
+        "breakthrough_reference.txt": "073e7fcc36188ca8ab59a5b3b87e5213b2c0353fdbddb385edf00c2d6c9d98ea",
     }
 
     @staticmethod
