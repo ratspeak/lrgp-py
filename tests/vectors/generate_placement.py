@@ -1,14 +1,14 @@
 """Regenerate the deterministic single-token game cross-language fixtures.
 
-Covers Hex, Gomoku, Reversi, Dots and Boxes, Mancala, Ultimate Tic-Tac-Toe,
-and Go.
+Covers every game in ``RULES``: Hex, Gomoku, Reversi, Dots and Boxes,
+Mancala, and the Appendix G games.
 
 Each game has a reference game played by the shared self-play policy
 ``legal[(ply * 7 + seed) % len(legal)]`` with the challenger as Black. Both
 implementations replay it from their own engines and must agree on every
 legal-move list and on the final payload. The move lists are written one per
-line to ``<game>_reference.txt`` (and ``gomoku_draw.txt`` for the full-board
-draw) so lrgp-rs can read the same bytes.
+line to ``<game>_reference.txt`` (and ``<game>_draw.txt`` for a drawn game)
+so lrgp-rs can read the same bytes.
 
 Hex's seed makes White swap at ply 1. Reversi's game contains an automatic
 pass (ply 56) and ends with White winning on count after Black's last move.
@@ -17,7 +17,7 @@ and captures) and are also won by White after Black's last move.
 ``mancala_draw.txt`` is the same policy with its own seed, ending 24-24, and
 ``ultimate_ttt_draw.txt`` ends with every small board finished and no line.
 The Go game ends with Black's pass and White winning on komi, although Black
-holds more area.
+holds more area. SPEC.md Appendix G describes the other games' seeds.
 """
 
 from functools import lru_cache
@@ -39,6 +39,7 @@ from lrgp.apps.gomoku import (  # noqa: E402
 from lrgp.apps.dots_and_boxes import DotsAndBoxesRules  # noqa: E402
 from lrgp.apps.hex import HexRules  # noqa: E402
 from lrgp.apps.mancala import MancalaRules  # noqa: E402
+from lrgp.apps.morris import MorrisRules  # noqa: E402
 from lrgp.apps.quoridor import QuoridorRules  # noqa: E402
 from lrgp.apps.reversi import ReversiRules  # noqa: E402
 from lrgp.apps.ultimate_ttt import UltimateRules  # noqa: E402
@@ -57,6 +58,7 @@ RULES = {
     "ultimate_ttt": UltimateRules,
     "go": GoRules,
     "quoridor": QuoridorRules,
+    "morris": MorrisRules,
 }
 SEEDS = {
     "hex": 113,
@@ -67,9 +69,10 @@ SEEDS = {
     "ultimate_ttt": 4,
     "go": 12,
     "quoridor": 63,
+    "morris": 30,
 }
 # Drawn games played by the same policy with their own seed.
-DRAW_SEEDS = {"mancala": 3, "ultimate_ttt": 19, "quoridor": 0}
+DRAW_SEEDS = {"mancala": 3, "ultimate_ttt": 19, "quoridor": 0, "morris": 22}
 
 
 def reference_game(game, seed=None):

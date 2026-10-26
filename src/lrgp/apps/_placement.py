@@ -20,7 +20,8 @@ A rules class provides ``LONGEST_MOVE`` (for tests), ``CAN_DRAW``, ``WIN_REASON`
 ``DRAW_REASON`` and the static methods ``start``, ``side_to_move``,
 ``is_canonical``, ``legal_moves``, ``play`` (raising ``ValueError``),
 ``outcome`` (``("", None)``, ``("win", side)`` or ``("draw", None)``),
-``render``, and ``extra_metadata``.
+``render``, and ``extra_metadata``. A game with more than one win or draw
+reason also provides ``reason``, the reason for a finished position.
 """
 
 import os
@@ -108,6 +109,16 @@ def render_grid(cells, size):
     return "".join(
         cells[rank * size + file] for rank in range(size - 1, -1, -1) for file in range(size)
     )
+
+
+def terminal_reason(rules, position):
+    """The reason code for a finished *position*, or ``""`` while it is on."""
+    if hasattr(rules, "reason"):
+        return rules.reason(position)
+    terminal = rules.outcome(position)[0]
+    if terminal == "win":
+        return rules.WIN_REASON
+    return rules.DRAW_REASON if terminal == "draw" else ""
 
 
 def play_checked(rules, position, notation):
@@ -546,13 +557,10 @@ class PlacementApp(GameBase):
             else:
                 if turn:
                     raise InvalidEnvelope("Completed session must not have a turn")
-                if terminal == "win" and reason == rules.WIN_REASON and board_terminal == "win":
+                board_reason = terminal_reason(rules, position)
+                if terminal == "win" and reason == board_reason and board_terminal == "win":
                     consistent = winner == _player(session, board_side)
-                elif (
-                    terminal == "draw"
-                    and reason == rules.DRAW_REASON
-                    and board_terminal == "draw"
-                ):
+                elif terminal == "draw" and reason == board_reason and board_terminal == "draw":
                     consistent = not winner
                 elif terminal == "win" and reason == R_RESIGN and not board_terminal:
                     consistent = winner in (session.identity_id, session.contact_hash)
@@ -904,13 +912,7 @@ class PlacementApp(GameBase):
         )
         metadata["last_move"] = notation
         metadata["terminal"] = terminal
-        metadata["terminal_reason"] = (
-            self.rules.WIN_REASON
-            if terminal == "win"
-            else self.rules.DRAW_REASON
-            if terminal == "draw"
-            else ""
-        )
+        metadata["terminal_reason"] = terminal_reason(self.rules, position)
         metadata["winner"] = _player(session, side) if terminal == "win" else ""
         _clear_draw_offer(metadata)
         self._refresh_derived(metadata, position)

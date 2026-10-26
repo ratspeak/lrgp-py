@@ -24,6 +24,12 @@
   Moves are a square (`e2`) or a wall (`c3h`, `c3v`); a third repetition
   draws. A reference game and a draw are shared with `lrgp-rs`. SPEC.md
   Appendix G.3 is normative.
+- **Nine Men's Morris (`morris.1`)** — place nine pieces, then slide them
+  along the lines, flying once down to three; every mill removes an
+  opponent piece. Moves read `d2`, `d2-d3`, or `d2-d3xg7` with a removal.
+  Repetition and 100 quiet plies draw. A reference game and a draw are
+  shared with `lrgp-rs`. SPEC.md Appendix G.4 is normative. Single-token
+  rules can now give more than one win or draw reason.
 
 - **Hex (`hex.1`), Gomoku (`gomoku.1`), and Reversi (`reversi.1`)** —
   dependency-free stone-placement games sharing one wire contract: moves are

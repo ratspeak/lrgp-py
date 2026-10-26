@@ -19,6 +19,7 @@ from lrgp.apps import (
     gomoku,
     hex as hex_game,
     mancala,
+    morris,
     quoridor,
     reversi,
     ultimate_ttt,
@@ -32,12 +33,14 @@ from lrgp.apps._placement import (
     play_checked,
     replay,
     square_name,
+    terminal_reason,
 )
 from lrgp.apps.dots_and_boxes import DotsAndBoxesApp, DotsAndBoxesRules
 from lrgp.apps.go import GoApp
 from lrgp.apps.gomoku import GomokuApp, GomokuRules
 from lrgp.apps.hex import SWAP, HexApp, HexRules
 from lrgp.apps.mancala import MancalaApp, MancalaRules
+from lrgp.apps.morris import MorrisApp
 from lrgp.apps.quoridor import QuoridorApp
 from lrgp.apps.reversi import ReversiApp, ReversiRules
 from lrgp.apps.ultimate_ttt import UltimateTicTacToeApp
@@ -85,6 +88,7 @@ GAMES = {
     "ultimate_ttt": (UltimateTicTacToeApp, ultimate_ttt),
     "go": (GoApp, go),
     "quoridor": (QuoridorApp, quoridor),
+    "morris": (MorrisApp, morris),
 }
 
 
@@ -934,6 +938,12 @@ class TestVectors:
         "quoridor_move_draw.bin": "0e3392a35b693be61b02ddc10d3bd075089dec815bb897ecb73b4f97e99ef19c",
         "quoridor_move_win.bin": "a3bea13b41c88e3d82fe8201fd50c03d18c4365f94527257979985991e50d159",
         "quoridor_reference.txt": "3e6ada9b7f8709514c2cd414bbb1fd7fb90aa8ba2ea5657a1c582abb311644cb",
+        "morris_accept.bin": "f9e97db46ddbfc591ab251585906167bd51010f3a2b63781b3db56483de97c22",
+        "morris_draw.txt": "d20b522c99f1e472b2caa28cbd15e7be4276913e2f34cab1e046a353b7a7d354",
+        "morris_move.bin": "0d450dec389e318e05720bf5fc57a0c31b1c8d163515810fc6976d3f06da5c9e",
+        "morris_move_draw.bin": "f7e0591c6ec960e640d0fa5a3fe542e6192c84c3fc129314485b212953169ddc",
+        "morris_move_win.bin": "8d9da863c261f7a8ef0fe8ca9542b73b30d64293aeb7104721862031e9accdd5",
+        "morris_reference.txt": "0cbd4edd67ef07ffd7f86d7aa912b6b905ea5613ca396086615f3b4a58fbcd5a",
     }
 
     @staticmethod
@@ -1032,7 +1042,9 @@ class TestVectors:
             session = app._get_session(SESSION, identity)
             assert session.status == STATUS_COMPLETED
             assert session.metadata["winner"] == RESPONDER
-            assert session.metadata["terminal_reason"] == app.rules.WIN_REASON
+            assert session.metadata["terminal_reason"] == terminal_reason(
+                app.rules, replay(app.rules, reference)
+            )
             assert session.metadata["legal_moves"] == []
             app_class().upsert_session(session.to_dict())
 
@@ -1040,6 +1052,7 @@ class TestVectors:
         ("name", "reason"),
         [
             ("gomoku", "ful"),
+            ("morris", "50m"),
             ("mancala", "cnt"),
             ("ultimate_ttt", "ful"),
             ("quoridor", "3fr"),
