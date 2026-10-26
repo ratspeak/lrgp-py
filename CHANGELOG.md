@@ -42,6 +42,12 @@
   flanking two opposing stones removes them, and five in a row or five
   captured pairs wins. A reference game won on captures is shared with
   `lrgp-rs`. SPEC.md Appendix G.7 is normative.
+- **Rock Paper Scissors (`rps.1`)** — a first-to-three match played
+  fairly over a slow link: the leader commits to each choice with a
+  SHA-256 hash, the follower answers in the open, and the leader then
+  reveals. Its session type is `round_based`. Uses only the standard
+  library. A reference match is shared with `lrgp-rs`. SPEC.md Appendix I
+  is normative.
 
 - **Hex (`hex.1`), Gomoku (`gomoku.1`), and Reversi (`reversi.1`)** —
   dependency-free stone-placement games sharing one wire contract: moves are

@@ -4,11 +4,12 @@ Python implementation of the **Lightweight Reticulum Gaming Protocol (LRGP)** â€
 
 LRGP carries game actions in LXMF custom fields over any reachable Reticulum path. The built-in games are turn-based. Each packed game envelope is limited to 200 bytes; title, fallback text, stamps and the rest of LXMF add overhead. The transport chooses packet or Link delivery for the complete message.
 
-This checkout declares **0.4.0** and includes seventeen built-in apps. Tic-Tac-Toe, Four in a Row, Checkers,
+This checkout declares **0.4.0** and includes eighteen built-in apps. Tic-Tac-Toe, Four in a Row, Checkers,
 and the new **Hex**, **Gomoku**, **Reversi**, **Dots and Boxes**,
 **Mancala**, **Ultimate Tic-Tac-Toe**, **Go**, **Battleship**, **Quoridor**,
-**Nine Men's Morris**, **Breakthrough**, **Amazons**, and **Pente** apps are
-dependency-free; Chess is available through the optional `chess` dependency.
+**Nine Men's Morris**, **Breakthrough**, **Amazons**, **Pente**, and **Rock
+Paper Scissors** apps are dependency-free; Chess is available through the
+optional `chess` dependency.
 
 ## Quick Start
 
@@ -113,6 +114,11 @@ Amazons (`amazons.1`) moves slide an amazon and shoot an arrow, written as
 Pente (`pente.1`) moves are a square on its 19x19 board, such as `{"m":
 "j10"}`.
 
+Rock Paper Scissors (`rps.1`) is a first-to-three match. The leader commits to
+each choice with a SHA-256 hash (`{"h": ...}`), the follower answers in the
+open (`{"c": "p"}`), and the leader reveals the choice and salt with its next
+commitment (`{"c": "r", "k": ..., "h": ...}`).
+
 ### Replay protection
 
 Every outbound envelope carries an 8-byte CSPRNG nonce under key `n`. The
@@ -185,6 +191,7 @@ src/lrgp/
     breakthrough.py # Breakthrough (8x8, diagonal captures)
     amazons.py     # Amazons (10x10, queen moves and arrows)
     pente.py       # Pente (19x19, pair captures)
+    rps.py         # Rock Paper Scissors (first to three, committed choices)
     four_in_a_row.py # Four in a Row (7x6 gravity, reconstructed state)
     tictactoe.py   # Tic-Tac-Toe reference game
     chess.py       # Chess (python-chess engine, UCI wire format; lrgp[chess])

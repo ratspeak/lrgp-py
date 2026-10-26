@@ -12,6 +12,7 @@ from .morris import MorrisApp
 from .pente import PenteApp
 from .quoridor import QuoridorApp
 from .reversi import ReversiApp
+from .rps import RpsApp
 from .tictactoe import TicTacToeApp
 from .ultimate_ttt import UltimateTicTacToeApp
 
@@ -30,6 +31,7 @@ __all__ = [
     "PenteApp",
     "QuoridorApp",
     "ReversiApp",
+    "RpsApp",
     "TicTacToeApp",
     "UltimateTicTacToeApp",
 ]
