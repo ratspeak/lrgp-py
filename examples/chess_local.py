@@ -5,9 +5,10 @@ Runs two ChessApp instances side by side and walks the seven plies of
 1.e4 e5 2.Bc4 Nc6 3.Qh5 Nf6 4.Qxf7#. The example pins the coin flip via
 ``force_coin(True)`` so the challenger is always White.
 
-Requires the ``[chess]`` extra:
+This calls local game hooks directly, not the authenticated network router.
+Requires the ``[chess]`` extra from the repository root:
 
-    pip install 'lrgp[chess]'
+    pip install -e ".[chess]"
 """
 
 import os

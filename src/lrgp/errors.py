@@ -96,7 +96,7 @@ class SessionNotFound(LrgpError):
 
 
 class SessionExists(LrgpError):
-    """A challenge or restore collides with an existing global session ID."""
+    """A challenge or restore collides with an existing session ID in one local identity scope."""
 
     def __init__(self, session_id):
         self.session_id = session_id
@@ -131,16 +131,22 @@ class ValidationError(LrgpError):
         super().__init__(message or code)
 
     def to_payload(self):
-        """Return the canonical LRGP ``{code,msg,ref}`` error payload."""
+        """Return the code/msg/ref fields without coercion or wire validation.
+
+        Callers must supply the nonempty string values required by the router.
+        """
         return {"code": self.code, "msg": self.message, "ref": self.ref}
 
 
 class OutgoingActionError(ValidationError):
-    """Typed failure raised before an invalid outgoing action can mutate state."""
+    """Typed application rejection raised by outgoing validation."""
 
 
 def error_payload(code, message, ref):
-    """Build the exact three-string error map required on the wire."""
+    """Build a code/msg/ref map by converting all three values to strings.
+
+    This helper does not reject empty strings; the router validates wire use.
+    """
     return {"code": str(code), "msg": str(message), "ref": str(ref)}
 
 

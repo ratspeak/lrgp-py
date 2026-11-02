@@ -12,7 +12,7 @@ The board is a 9-character ASCII string using `X`, `O`, and `_` (empty). Row-maj
  6 | 7 | 8
 ```
 
-This encoding costs exactly 10 bytes in msgpack (1B header + 9B string) — far more efficient than a list of 9 integers or a nested structure.
+The fixed-length string takes 10 MessagePack bytes (a one-byte header and nine ASCII bytes) and keeps board comparisons simple.
 
 ## Player Assignment
 
@@ -24,13 +24,13 @@ This is fixed — no negotiation needed, reducing protocol complexity.
 ## Validation Model: `both`
 
 Both sender and receiver validate every move. This ensures:
-- Sender can't send illegal moves (client-side prevention)
+- The local API rejects an illegal move before changing its state
 - Receiver catches bugs or tampering (cross-client play)
 - Invalid moves get an `error` response with code `invalid_move`
 
 ## Move Payload
 
-Each move carries the full board state, not just the cell index. This ensures state synchronization even if messages arrive out of order or are lost:
+Each move carries the resulting board alongside the cell index. The receiver compares it with its own expected next board; it rejects an out-of-order or inconsistent move. This check does not repair missing actions:
 
 ```python
 {"i": 4, "b": "____X____", "n": 1, "t": "opponent_hash", "x": ""}
@@ -46,13 +46,12 @@ The sender sets `"x": "win"` or `"x": "draw"` on terminal moves. The receiver in
 
 ## Wire Efficiency
 
-All payload keys are single characters. The worst-case envelope (error response with code + message + ref) is 84 bytes packed — well within the 200-byte envelope budget.
-
-| Action | Envelope Size | Full Content | Headroom |
-|--------|--------------|-------------|----------|
-| challenge | 43 B | 96 B | 199 B |
-| move (win) | 84 B | 127 B | 168 B |
-| error | 84 B | 140 B | 155 B |
+All payload keys are single characters. Every packed envelope, including its
+nonce and participant strings, must fit the 200-byte LRGP limit. The fallback,
+LXMF fields and transport overhead add bytes outside that limit. Run
+[`examples/envelope_sizes.py`](../examples/envelope_sizes.py) from the repository
+root to inspect the current example envelopes and serialized message bodies;
+it does not certify that the complete encrypted message fits one packet.
 
 ## Fallback Text
 

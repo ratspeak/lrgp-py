@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Local Tic-Tac-Toe simulation — two players, in-memory, no network."""
+"""Local Tic-Tac-Toe simulation — two players, in-memory, no network.
+
+Calls game hooks directly; use LrgpRouter for network-facing dispatch.
+"""
 
 import sys
 import os

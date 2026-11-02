@@ -47,7 +47,12 @@ CREATE TABLE IF NOT EXISTS game_actions (
 
 
 class LrgpStore:
-    """SQLite-backed storage for LRGP game sessions and actions."""
+    """SQLite-backed storage for game sessions and actions.
+
+    One connection is serialized by a lock. Each mutating method commits its
+    own operation; separate save_session/update_session and save_action calls
+    do not form one atomic transaction. Session/game validation is external.
+    """
 
     def __init__(self, db_path=":memory:"):
         self._db_path = db_path
@@ -113,7 +118,10 @@ class LrgpStore:
                 raise
 
     def get_session(self, session_id, identity_id=""):
-        """Get a session by ID. Returns dict or None."""
+        """Get one (session_id, identity_id) record as a dict, or None.
+
+        This storage lookup does not apply game TTLs.
+        """
         with self._lock:
             row = self._get_conn().execute(
                 "SELECT * FROM game_sessions WHERE session_id=? AND identity_id=?",
@@ -124,7 +132,12 @@ class LrgpStore:
         return self._row_to_dict(row)
 
     def update_session(self, session_id, identity_id="", **kwargs):
-        """Update specific fields of a session."""
+        """Update allowed mutable fields in one local identity scope and commit.
+
+        Allowed fields are status, metadata, unread, updated_at and last_action_at.
+        A nonempty update always replaces updated_at with time.time(); an absent
+        row is not inserted and no affected-row count is returned.
+        """
         if not kwargs:
             return
         invalid = set(kwargs) - _MUTABLE_SESSION_FIELDS
@@ -151,7 +164,10 @@ class LrgpStore:
 
     def list_sessions(self, identity_id="", app_id=None, status=None,
                       contact_hash=None):
-        """List sessions with optional filters."""
+        """List one local identity's records, newest last_action_at first.
+
+        Optional app/status/contact filters apply when truthy. No TTL is applied.
+        """
         clauses = ["identity_id=?"]
         params = [identity_id]
 

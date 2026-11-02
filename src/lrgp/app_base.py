@@ -99,11 +99,21 @@ class GameBase(ABC):
             )] = session
 
     def get_session_record(self, session_id, identity_id="", now=None):
-        """Return a TTL-checked session record, or ``None``."""
+        """Return the stored Session object, or None if absent.
+
+        The TTL check can mark it expired in place; expired records are still
+        returned. This is a live object, not a detached snapshot.
+        """
         return self._get_session(session_id, identity_id, now=now)
 
     def upsert_session(self, record, now=None):
-        """Hydrate one persisted session into the application's live store."""
+        """Validate shared fields and insert or replace a live session from trusted storage.
+
+        Checks ID, app/version and local identity, applies TTL and normalizes draw
+        ownership. Game-specific state validation belongs to the subclass. A
+        supplied Session is retained directly; this method does not authenticate
+        persisted data or write it back to durable storage.
+        """
         session = record if isinstance(record, Session) else Session.from_dict(record)
         if not is_canonical_session_id(session.session_id):
             raise InvalidEnvelope("Hydrated session id is not canonical")
@@ -153,7 +163,13 @@ class GameBase(ABC):
         return records
 
     def bind_peer(self, session_id, identity_id, participant_hash):
-        """Bind a session to its one remote participant, never silently rebind."""
+        """Bind a session to its remote participant, rejecting a different bound peer.
+
+        Direct callers must serialize GameBase mutations across this method's
+        lookup/check/save sequence. The router holds the application's session
+        lock when it calls this hook; the hook alone does not hold one lock
+        across the whole sequence.
+        """
         if not participant_hash:
             raise ParticipantRequired()
         session = self._get_session(session_id, identity_id)
@@ -166,14 +182,22 @@ class GameBase(ABC):
         return session
 
     def authorize_session(self, session, sender_hash):
-        """Require an action to come from the session's bound peer."""
+        """Compare the supplied sender to the session's nonempty bound peer.
+
+        Transport authentication must happen before this identifier comparison.
+        """
         if not session.contact_hash or session.contact_hash != sender_hash:
             raise UnauthorizedPeer(session.session_id)
         return session
 
     def authorize_incoming(self, session_id, command, sender_hash,
                            identity_id=""):
-        """Authorize the transport sender before application dispatch."""
+        """Check the bound participant before application dispatch.
+
+        A new challenge may have no existing session and returns None. Existing
+        expired sessions fail. The caller must already have authenticated the
+        transport sender; this method compares identifiers only.
+        """
         session = self._get_session(session_id, identity_id)
         if session is None:
             if command == CMD_CHALLENGE:

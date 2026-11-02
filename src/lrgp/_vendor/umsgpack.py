@@ -30,18 +30,17 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 #
-"""
-u-msgpack-python v2.7.1 - v at sergeev.io
-https://github.com/vsergeev/u-msgpack-python
+"""Vendored u-msgpack-python 2.7.1 serializer and deserializer.
 
-u-msgpack-python is a lightweight MessagePack serializer and deserializer
-module, compatible with both Python 2 and 3, as well CPython and PyPy
-implementations of Python. u-msgpack-python is fully compliant with the
-latest MessagePack specification.com/msgpack/msgpack/blob/master/spec.md). In
-particular, it supports the new binary, UTF-8 string, and application ext
-types.
+Upstream: https://github.com/vsergeev/u-msgpack-python
+License: MIT; the original copyright and license text is retained above.
 
-License: MIT
+Supports MessagePack binary values, UTF-8 strings and extension types.
+LRGP's serializer shim first tries the RNS-vendored codec, then this copy.
+This copy rejects duplicate ordinary map keys, but converts array keys to
+tuples before its duplicate check and can silently overwrite them. Do not
+rely on it alone for LRGP's recursive duplicate-key prohibition. Validate
+raw-map keys at the input boundary when enforcing that rule.
 """
 import struct
 import collections
@@ -73,28 +72,23 @@ class Ext(object):
     """
 
     def __init__(self, type, data):
-        """
-        Construct a new Ext object.
+        """Construct an extension object from an integer type and binary data.
 
         Args:
-            type: application-defined type integer
-            data: application-defined data byte array
+            type: application-defined integer from -128 through 127.
+            data: bytes on Python 3, or str on Python 2.
 
-        TypeError:
-            Type is not an integer.
-        ValueError:
-            Type is out of range of -128 to 127.
-        TypeError::
-            Data is not type 'bytes' (Python 3) or not type 'str' (Python 2).
+        Raises:
+            TypeError: type is not an integer, or data has the wrong type.
+            ValueError: type is outside the signed-byte range.
 
         Example:
-        >>> foo = umsgpack.Ext(5, b"\x01\x02\x03")
-        >>> umsgpack.packb({u"special stuff": foo, u"awesome": True})
-        '\x82\xa7awesome\xc3\xadspecial stuff\xc7\x03\x05\x01\x02\x03'
-        >>> bar = umsgpack.unpackb(_)
-        >>> print(bar["special stuff"])
-        Ext Object (Type: 5, Data: 01 02 03)
-        >>>
+            >>> from lrgp._vendor import umsgpack
+            >>> value = umsgpack.Ext(5, bytes([1, 2, 3]))
+            >>> packed = umsgpack.packb({"special": value, "enabled": True})
+            >>> restored = umsgpack.unpackb(packed)
+            >>> restored["special"] == value
+            True
         """
         # Check type is type int and in range
         if not isinstance(type, int):

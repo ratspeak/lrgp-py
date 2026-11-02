@@ -1,26 +1,23 @@
-"""LRGP Chess — built-in turn-based game with both-side validation.
+"""LRGP Chess: turn-based play with incoming and outgoing move validation.
 
-Wire format mirrors lrgp-rs's chess.rs exactly: UCI moves only on the wire,
-local board state reconstructed by replaying the UCI history. Backed by
-``python-chess`` (install via ``pip install 'lrgp[chess]'``).
+Moves use UCI strings; local board state is reconstructed by replaying the
+UCI history with python-chess (install with ``pip install 'lrgp[chess]'``).
+The LRGP specification defines the shared wire contract.
 
-Wire payload keys::
+Move payload keys:
+    m: UCI move, for example "e2e4" or promotion "e7e8q".
+    n: zero-based ply counter (0 is White's first move).
+    x: terminal status: "", "win" or "draw".
+    r: reason on terminal moves: "cm" (checkmate), "sm" (stalemate),
+       or "ins" (insufficient material).
+    w: winner identity hash on a winning move.
 
-    m   UCI move, e.g. "e2e4" or "e7e8q" (promotion)
-    n   ply counter, 0-based (0 = White's first move)
-    x   terminal status: "" | "win" | "draw"
-    r   terminal / draw-claim reason (2-3 chars, see below)
-    w   winner identity hash (move with x="win") OR White-player hash (accept)
-
-Terminal reason codes (kept short to fit ``ENVELOPE_MAX_PACKED``)::
-
-    cm   checkmate
-    sm   stalemate
-    ins  insufficient material
-    3fr  threefold repetition (claimed)
-    50m  fifty-move rule (claimed)
-    rsn  resignation
-    agr  draw by agreement
+An accept action instead uses w for the White-player identity hash.
+A draw_offer is empty for an agreement offer, or uses r="3fr" for a
+threefold-repetition claim or r="50m" for a fifty-move claim. Resignation
+and draw acceptance have empty wire payloads; "rsn" and "agr" are local
+terminal-reason metadata. The 200-byte envelope limit still applies to the
+whole envelope, including its session ID and nonce.
 """
 
 import os

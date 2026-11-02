@@ -2,13 +2,15 @@
 
 Python implementation of the **Lightweight Reticulum Gaming Protocol (LRGP)** — a compact, session-based protocol for multiplayer games over [LXMF](https://github.com/markqvist/LXMF) / [Reticulum](https://github.com/markqvist/Reticulum) mesh networks.
 
-LRGP enables turn-based and real-time multiplayer games to run over LoRa radios, WiFi, TCP, and any other medium Reticulum supports. Game moves are encoded as tiny msgpack envelopes that fit in a single encrypted packet — no link setup needed.
+LRGP carries game actions in LXMF custom fields over any reachable Reticulum path. The built-in games are turn-based. Each packed game envelope is limited to 200 bytes; title, fallback text, stamps and the rest of LXMF add overhead. The transport chooses packet or Link delivery for the complete message.
 
-LRGP now has three built-in apps. Tic-Tac-Toe and the new **Four in a Row**
-app are dependency-free; Chess is available through the optional `chess`
+This checkout declares **0.4.0** and includes three built-in apps. Tic-Tac-Toe and **Four in a Row**
+are dependency-free; Chess is available through the optional `chess`
 dependency.
 
 ## Quick Start
+
+Run these commands from this repository. Use Python **3.8+** in a virtual environment; Chess and test tools are optional extras. For example, create one with `python3 -m venv .venv`, then activate it with `source .venv/bin/activate` on macOS/Linux or `.venv\Scripts\Activate.ps1` in Windows PowerShell.
 
 ```bash
 # Install (zero dependencies for core library)
@@ -30,7 +32,7 @@ python -c "from lrgp.apps import FourInARowApp; print(FourInARowApp().get_manife
 # Walk Scholar's Mate locally
 python examples/chess_local.py
 
-# Check wire budget for all TTT actions
+# Measure representative TTT envelopes and message bodies
 python examples/envelope_sizes.py
 ```
 
@@ -39,13 +41,17 @@ python examples/envelope_sizes.py
 LRGP encodes game sessions as LXMF custom fields:
 
 ```python
+import os
+
+fields = {}
 fields[0xFB] = "lrgp.v1"                       # protocol marker
 fields[0xFD] = {                               # envelope
     "a": "ttt.1",                              # app_id.version
     "c": "move",                               # command
     "s": "a1b2c3d4e5f60718",                   # session_id
-    "p": {"i": 4, "b": "____X____", ...},      # payload (game-specific)
-    "n": b"\\xde\\xad\\xbe\\xef\\xc0\\xff\\xee\\x01",  # 8-byte CSPRNG nonce
+    "p": {"i": 4, "b": "____X____", "n": 1,
+          "t": "remote_identity", "x": ""},   # canonical non-terminal TTT move
+    "n": os.urandom(8),                        # fresh 8-byte CSPRNG nonce
 }
 ```
 
@@ -57,7 +63,7 @@ gravity and reconstruct the 42-cell board and next turn locally, so neither a
 board snapshot nor a turn identity is sent with a move. A winning move alone
 adds `"w"`, set to the authenticated mover.
 
-All envelopes are msgpack-serialized and fit within LXMF's 295-byte OPPORTUNISTIC delivery limit — no link setup needed, single encrypted packet.
+Use the game router to construct canonical payloads from local intent. The wire sketch above is explanatory; participant identifiers come from authenticated transport metadata, and transport sizing must cover the complete LXMF message.
 
 ### Replay protection
 
@@ -66,17 +72,25 @@ router first probes without recording, authorizes the authenticated sender,
 then atomically checks and records before application mutation. The cache is
 scoped by receiving identity and session, bounded to 512 nonces per scope and
 1024 scopes, with a 10-minute absolute TTL. This keeps unauthenticated traffic
-from consuming or evicting replay state. Terminal sessions retain replay
-entries through their normal TTL; only explicit session removal may drop that
-identity/session scope.
+from consuming or evicting replay state. Ending a session does not clear its
+entries; normal TTL expiry and bounded-cache eviction still apply. Explicit
+session removal may drop that identity/session scope.
 
-Use `LrgpRouter` as the protocol boundary. It validates canonical wire data,
-rejects trailing bytes and duplicate map keys in byte-oriented decoding, binds
-each session to its authenticated participant, enforces global session-ID
-uniqueness across apps, and caps unsolicited pending challenges at 16 per
-participant and 128 per receiving identity. Incoming authenticated sender and
+Use `LrgpRouter` as the protocol boundary. It validates envelope fields, binds
+each session to the authenticated participant supplied by the transport,
+enforces session-ID uniqueness across apps within each local identity, and caps
+unsolicited pending challenges at 16 per participant and 128 per receiving identity. Incoming authenticated sender and
 receiving-identity identifiers, and outgoing local identity/recipient
 identifiers, must all be non-empty.
+
+For byte input, `unpack_from_bytes` rejects trailing data, but duplicate-key
+handling depends on its MessagePack decoder. The bundled fallback rejects
+repeated string keys but can silently overwrite repeated array keys. The
+protocol requires rejecting duplicate map keys at every level. Decode
+untrusted input with a decoder that enforces that rule before constructing
+dictionaries; the router cannot recover keys already discarded during decoding.
+The serializer first tries RNS's vendored codec; check the selected decoder's
+duplicate-key handling.
 
 The optional `LrgpTransport` forwards an LXMF `source_hash` only after LXMF
 reports a validated message signature. Custom integrations must likewise pass
@@ -115,7 +129,7 @@ src/lrgp/
 
 ## Writing a Game
 
-Implement the `GameBase` class:
+Implement the `GameBase` class. This declaration is a skeleton, not an instantiable game; the [game-writing guide](docs/writing-an-app.md) describes the required hooks:
 
 ```python
 from lrgp.app_base import GameBase
@@ -138,16 +152,18 @@ The game-specific design is summarized in
 
 ## Network Usage
 
-For LXMF transport (requires Reticulum):
+For the one-challenge LXMF transport demonstration (requires Reticulum and a working path between its local destinations):
 
 ```bash
 pip install -e ".[rns]"
 python examples/ttt_cli.py
 ```
 
+This demonstration creates temporary identities and local `lxmf_x`/`lxmf_o` storage, and uses your Reticulum configuration. It is not an interactive two-player client or proof that a configured network path is working.
+
 ## See Also
 
-- [lrgp-rs](../lrgp-rs) — Rust implementation (wire-compatible)
+- [lrgp-rs](https://github.com/ratspeak/lrgp-rs) — Rust implementation of the same wire protocol
 
 ## License
 

@@ -4,17 +4,22 @@ from .envelope import pack_lxmf_fields, unpack_envelope
 
 
 class LrgpTransport:
-    """Wraps an LXMRouter to send/receive LRGP game messages over LXMF.
+    """Bridge an existing LXMRouter to LRGP envelopes.
 
-    This module is the ONLY part of LRGP that imports RNS/LXMF.
-    It is not imported by default — only when using ``lrgp[rns]``.
+    Import this module explicitly; installing the rns extra supplies optional
+    transport dependencies but does not construct or start a transport. The
+    package's MessagePack shim can also import RNS's vendored serializer.
     """
 
     def __init__(self, lxmf_router, identity):
-        """
+        """Keep an existing router and local source provider.
+
         Args:
             lxmf_router: an LXMF.LXMRouter instance.
-            identity: an RNS.Identity instance.
+            identity: an object exposing the registered local LXMF delivery
+                destination as .destination. A plain RNS.Identity does not supply
+                this attribute; expose the destination returned by
+                register_delivery_identity, as in examples/ttt_cli.py.
         """
         self._router = lxmf_router
         self._identity = identity
@@ -22,14 +27,19 @@ class LrgpTransport:
 
     def send(self, dest_hash_hex, envelope, fallback_text,
              delivery="opportunistic", title=""):
-        """Send an LRGP envelope as an LXMF message.
+        """Submit an LRGP envelope to the existing LXMF router and return its LXMessage.
 
         Args:
-            dest_hash_hex: destination identity hash as hex string.
+            dest_hash_hex: remote LXMF delivery destination hash in hexadecimal,
+                not the remote identity hash.
             envelope: LRGP envelope dict.
             fallback_text: human-readable content for non-LRGP clients.
             delivery: "opportunistic" or "direct".
             title: optional LXMF title.
+
+        If the remote identity is not recalled, request its path and raise
+        RuntimeError immediately; this helper does not wait or retry. Successful
+        return means handle_outbound was called, not that delivery was proved.
         """
         if delivery not in ("opportunistic", "direct"):
             raise ValueError("delivery must be 'opportunistic' or 'direct'")
@@ -63,10 +73,14 @@ class LrgpTransport:
         return lxm
 
     def register_handler(self, callback):
-        """Register a callback for incoming LRGP messages.
+        """Set the LXMF delivery callback for incoming LRGP messages.
 
-        The callback signature: callback(envelope, sender_hash, lxm)
-        where envelope is the unpacked LRGP envelope dict.
+        The callback receives (envelope, sender_hash, lxm), with a validated LRGP
+        envelope and hexadecimal source hash. Messages require LXMF's
+        signature_validated flag to be exactly True and a nonempty binary source.
+        Malformed LRGP fields and callback exceptions can propagate. This replaces
+        the router's registered delivery callback; it does not dispatch to a game
+        or provide the receiving local identity scope automatically.
         """
         self._handler = callback
 

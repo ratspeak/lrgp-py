@@ -1,24 +1,15 @@
-"""Receiving-identity-scoped envelope replay-dedup cache.
+"""Receiving-identity-scoped envelope replay cache.
 
-LRGP envelopes carry a required 8-byte ``n`` nonce (see ``envelope.py``).
-The receiver keeps a bounded, TTL'd cache of recently-seen
-``(receiving_identity_id, session_id, nonce)`` tuples. The router first probes
-without recording, authenticates the participant, and only then atomically
-checks and records. This prevents unauthenticated fresh nonces from evicting
-legitimate replay state while still resolving concurrent duplicate races.
+LRGP envelopes carry a required 8-byte ``n`` nonce. The router probes the
+``(receiving_identity_id, session_id, nonce)`` cache before participant
+checks, then checks and records under its replay-cache lock after those
+checks. The caller must authenticate the transport sender before dispatch.
 
-Design constraints:
-
-* Scoped by receiving identity and session id so legitimate reuse in another
-  local identity or session cannot cause a false reject.
-* LRU bound prevents unbounded growth inside a single long-running session.
-* An outer LRU bound prevents unbounded growth in the number of sessions.
-* TTL bound makes the cache forget nonces older than any realistic round
-  trip, which limits memory for short-lived sessions that never reach
-  terminal state.
-* Terminal sessions retain their nonces through the normal TTL so late
-  retransmits remain replays. Explicit session removal may call
-  ``drop_session()``.
+Each scope has a nonce LRU bound; an outer LRU bounds the number of scopes.
+TTL uses first-seen monotonic timestamps, so repeats do not extend it.
+Capacity eviction, expiry and explicit removal can make a previously seen
+nonce fresh again. Terminal sessions use the same limits as other sessions;
+there is no permanent or durable replay guarantee.
 """
 
 import time
@@ -31,7 +22,11 @@ from .constants import (
 
 
 class ReplayDedup:
-    """Bounded LRU of scoped session/nonces with first-seen timestamps."""
+    """Bounded LRU of scoped session/nonces with first-seen timestamps.
+
+    Callers must serialize access and provide sensible nonnegative capacities
+    and a TTL. The router supplies the lock when it owns this cache.
+    """
 
     def __init__(self, max_per_session=DEDUP_CACHE_PER_SESSION,
                  ttl_seconds=DEDUP_TTL_SECONDS,
@@ -42,17 +37,17 @@ class ReplayDedup:
         self._by_session = OrderedDict()  # session_id -> OrderedDict[bytes, float]
 
     def check(self, envelope, now=None, scope=""):
-        """Decide whether ``envelope`` is a replay.
+        """Check and record replay state for a validated envelope.
 
-        Returns ``True`` if this envelope is a duplicate of one the caller
-        has already processed (caller should drop it). Returns ``False``
-        otherwise; in that case the nonce has been recorded and future
-        arrivals with the same nonce for the same session will be
-        flagged as replays.
+        Return True for a retained duplicate or an invalid nonce/session field;
+        return False after recording a fresh nonce and enforcing capacity limits.
+        A zero capacity can immediately evict that new record. Later arrivals are
+        replays only while the scoped record remains cached.
 
-        The envelope MUST be post-``unpack_envelope`` validated; missing or
-        malformed fields here are a protocol violation and are dropped as
-        replays.
+        Use an envelope already validated by ``unpack_envelope``. This method
+        checks only nonce type/length and session string type, not the full schema.
+        ``scope`` identifies the receiving local identity. ``now`` uses the same
+        monotonic time base as earlier calls, or defaults to time.monotonic().
         """
         nonce = envelope.get(KEY_NONCE)
         if not isinstance(nonce, bytes) or len(nonce) != NONCE_BYTES:
@@ -123,7 +118,11 @@ class ReplayDedup:
                 self._by_session.pop(cache_key, None)
 
     def forget(self, session_id, nonce, scope=""):
-        """Forget one scoped nonce after pre-dispatch authorization fails."""
+        """Forget one scoped nonce, returning whether it existed.
+
+        This also supports explicit durable-persistence rollback; it does not
+        restore any application state.
+        """
         entries = self._by_session.get((scope, session_id))
         if entries is None:
             return False
@@ -133,7 +132,10 @@ class ReplayDedup:
         return removed
 
     def sweep(self, now=None):
-        """Prune expired entries and empty sessions, returning drop count."""
+        """Prune expired entries and empty scopes, returning the nonce count removed.
+
+        A nonce expires when its age is strictly greater than the configured TTL.
+        """
         ts = time.monotonic() if now is None else now
         dropped = 0
         for session_id, entries in list(self._by_session.items()):

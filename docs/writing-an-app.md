@@ -2,7 +2,9 @@
 
 This guide describes the Python `GameBase` contract. Start with
 `src/lrgp/apps/tictactoe.py` for a complete implementation, and use
-`LrgpRouter` for all network-facing dispatch.
+`LrgpRouter` for all network-facing dispatch. The fragments below outline the
+contract; `CoinFlipGame` is not a complete executable game until its hooks are
+implemented.
 
 ## 1. Subclass `GameBase`
 
@@ -19,12 +21,12 @@ class CoinFlipGame(GameBase):
     min_players = 2
     max_players = 2
     validation = "both"
-    actions = ["challenge", "accept", "decline", "flip"]
+    actions = ["challenge", "accept", "decline", "move"]
     preferred_delivery = {
         "challenge": "opportunistic",
         "accept": "opportunistic",
         "decline": "opportunistic",
-        "flip": "opportunistic",
+        "move": "opportunistic",
     }
     ttl = {"pending": 86400, "active": 3600}
 ```
@@ -62,11 +64,17 @@ def render_fallback(self, command, payload):
 
 Games create and update `lrgp.session.Session` records through the inherited
 session helpers. A new challenge is `pending`; accepting makes it `active`.
-Call `SessionStateMachine.apply_command()` for every stateful command,
-including same-state actions such as draw offers and declines, so timestamps
-and TTLs remain correct.
+`SessionStateMachine.apply_command()` handles the standard lifecycle commands,
+including same-state `move`, `draw_offer` and `draw_decline` actions, and updates
+the activity timestamps used by TTL checks. The coin result is a standard
+`move` payload. After validating it, the handler calls
+`SessionStateMachine.apply_command(session, "move", terminal=True)` to finish
+the active round. This also passes the base outgoing validator, which checks
+standard transitions before the handler runs. A custom action name such as
+`flip` would require a separate validation and lifecycle design; changing the
+handler alone would still fail the base validation.
 
-The application hook deliberately does **not** receive a participant argument.
+The outgoing application hook deliberately does **not** receive a participant argument.
 The router validates the intended participant before mutation and binds a new
 outgoing challenge after the app creates its session. Incoming handlers should
 still store the authenticated `sender_hash` on newly created challenge
@@ -86,7 +94,7 @@ def validate_outgoing(self, session_id, command, payload, identity_id,
     session = super().validate_outgoing(
         session_id, command, payload, identity_id, participant_hash
     )
-    if command == "flip" and "r" not in payload:
+    if command == "move" and "r" not in payload:
         raise OutgoingActionError("invalid_move", "Missing result", command)
     return session
 ```
@@ -128,7 +136,11 @@ verdict = router.dispatch_incoming(
     receiving_identity_hash,
 )
 
-if verdict.kind == "applied":
+if verdict.kind == "applied" and verdict.result.get("error") is not None:
+    # The router already restored game state. Keep the rejection nonce,
+    # including if displaying or recording this rejection fails.
+    handle_rejection(verdict.result["error"])
+elif verdict.kind == "applied":
     try:
         commit_session_and_action(verdict.result)
     except Exception:
@@ -171,8 +183,10 @@ and corresponding action atomically in the application database. If that
 transaction fails after an applied inbound dispatch, use the snapshot rollback
 shown above. If durable recording of an authenticated remote error fails, use
 the nonce-only recovery shown above; restoring a session snapshot would be
-incorrect because that result did not mutate game state. Ordinary application
-rejections are not rolled back through either external-commit recovery path.
+incorrect because that result did not mutate game state. An `applied` dispatch can still contain a handler rejection in `result["error"]`;
+the router has already restored its game state. Handle that result before the
+accepted-action commit branch. Ordinary application rejections retain their
+nonce and do not use either external-commit recovery path.
 
 ## 5. Keep the wire payload small
 
@@ -192,7 +206,7 @@ Measure the canonical envelope:
 from lrgp.envelope import pack_envelope, validate_envelope_size
 
 envelope = pack_envelope(
-    "coin", 1, "flip", "0123456789abcdef", {"r": "heads"}
+    "coin", 1, "move", "0123456789abcdef", {"r": "heads"}
 )
 size = validate_envelope_size(envelope)
 ```

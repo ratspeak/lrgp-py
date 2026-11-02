@@ -29,10 +29,16 @@ from .errors import (
 
 
 class IncomingDispatch(Mapping):
-    """Typed incoming verdict matching Rust's ``Applied``/``Replay`` enum.
+    """Incoming verdict: applied, replay or remote_error.
 
-    Applied values also behave as a read-only mapping over the legacy result,
-    so existing callers can continue to use ``dispatch["session"]``.
+    Applied exposes the handler result through the Mapping interface. Its
+    result may contain an error rejection; inspect it before persisting an
+    accepted action. Remote_error carries RemoteProtocolError in result and
+    must be handled separately. Replay has no result.
+
+    The mapping interface has no item assignment, but result and its nested
+    values remain mutable. This class does not itself validate constructed
+    verdicts.
     """
 
     __slots__ = ("kind", "result")
@@ -74,7 +80,11 @@ class IncomingDispatch(Mapping):
 
 @dataclass(frozen=True)
 class PreparedOutgoing:
-    """Validated outbound envelope and its transport presentation."""
+    """Envelope and transport presentation returned by outgoing dispatch.
+
+    The router validates its result; directly constructing this dataclass does
+    not. Frozen attributes do not make the contained envelope dict immutable.
+    """
 
     envelope: dict
     session_id: str
@@ -100,7 +110,12 @@ class RemoteProtocolError:
 
 
 class LrgpRouter:
-    """Thread-safe app registry with router-owned replay protection."""
+    """Locked app registry, session dispatch and bounded replay cache.
+
+    Transport authentication and durable persistence belong to the caller.
+    Serialize each snapshot/dispatch/persistence/rollback sequence externally;
+    the method locks do not span that whole sequence.
+    """
 
     def __init__(self, replay=None):
         self._registry = {}
@@ -128,7 +143,11 @@ class LrgpRouter:
             return [app.get_manifest() for app in self._registry.values()]
 
     def discover(self, package):
-        """Scan a package for ``GameBase`` subclasses and register them."""
+        """Import a trusted package's immediate modules and register GameBase subclasses.
+
+        Imports and constructors execute application code. ImportError and
+        RuntimeError during import are skipped; constructor failures propagate.
+        """
         for _importer, name, _ispkg in pkgutil.iter_modules(package.__path__):
             try:
                 module = importlib.import_module("{}.{}".format(package.__name__, name))
@@ -266,7 +285,18 @@ class LrgpRouter:
         return IncomingDispatch.applied(result)
 
     def dispatch_incoming(self, envelope, sender_hash, identity_id=""):
-        """Validate, deduplicate, authorize, and dispatch one envelope."""
+        """Validate, deduplicate, authorize and dispatch one envelope.
+
+        The caller must supply an authenticated sender_hash and the receiving
+        local identity_id. This method requires nonblank strings and compares
+        participant bindings; it does not verify transport signatures.
+
+        Inspect the verdict: applied can hold a handler rejection; remote_error is
+        an authenticated peer report, not a command to roll local state backward.
+        Accepted actions, remote errors and some rejected actions consume replay
+        state. Handler failures restore the game snapshot but retain that nonce.
+        No durable write or transport response is performed here.
+        """
         # These values are supplied by the authenticated transport boundary,
         # not by the LRGP envelope. Reject missing scope before parsing or
         # touching replay/application state so an unauthenticated delivery can
@@ -316,11 +346,13 @@ class LrgpRouter:
 
     def rollback_incoming(self, app_id, session_id, identity_id, nonce,
                           snapshot=None):
-        """Undo an applied inbound action after durable persistence fails.
+        """Restore a snapshot and forget one scoped nonce after durable persistence fails.
 
-        Restoring the session alone is insufficient: the exact envelope must
-        be allowed through replay protection when its transport retransmits.
-        Only that receiving-identity/session/nonce entry is forgotten.
+        Only use this for the accepted action whose pre-dispatch snapshot you
+        retained. snapshot=None removes the session. Serialize the whole external
+        transaction so rollback cannot overwrite a later action. A handler
+        rejection is already rolled back and must not use this recovery path.
+        Only the supplied receiving-identity/session/nonce replay entry is removed.
         """
         if not isinstance(nonce, bytes) or len(nonce) != NONCE_BYTES:
             raise InvalidEnvelope(
@@ -350,7 +382,16 @@ class LrgpRouter:
 
     def dispatch_outgoing_to(self, app_id, command, payload, session_id,
                              identity_id, participant_hash):
-        """Prepare an outbound action bound to its remote participant."""
+        """Prepare an outbound action bound to its remote participant.
+
+        A challenge with an empty session ID gets a generated ID in the result.
+        Game hooks may mutate live state. Failures inside the guarded validation,
+        action-handler and envelope-packing block restore its snapshot. The later
+        get_delivery_method hook runs outside that block and can fail after the
+        state has changed. Success neither sends nor persists the envelope.
+        Callers must retain a pre-dispatch snapshot and coordinate recovery,
+        including later hook failures, before allowing another action.
+        """
         # This entry point always promises a concrete transport recipient,
         # including for non-challenge actions. Enforce that promise before
         # doing any application lookup or mutation.
@@ -438,7 +479,11 @@ class LrgpRouter:
         )
 
     def hydrate_session(self, record, now=None):
-        """Restore a persisted session into the matching application."""
+        """Restore trusted persisted state through the matching application.
+
+        Reject a same-ID/same-local-identity record owned by another app. Restoring
+        into the same app can replace an existing record; it is not a wire action.
+        """
         app_id = record.app_id if hasattr(record, "app_id") else record.get("app_id", "")
         version = (record.app_version if hasattr(record, "app_version")
                    else record.get("app_version"))
@@ -469,7 +514,12 @@ class LrgpRouter:
         return removed
 
     def sweep_expired(self, now=None):
-        """Apply session TTLs and prune replay entries by their nonce TTL."""
+        """Apply session TTLs and return all currently expired session snapshots.
+
+        Records remain stored, so repeated calls can return the same sessions.
+        now affects session wall-clock expiry only; replay pruning uses its own
+        monotonic clock.
+        """
         expired = []
         with self._registry_lock:
             apps = list(self._registry.values())

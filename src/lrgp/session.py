@@ -75,18 +75,14 @@ class SessionStateMachine:
 
     @staticmethod
     def apply_command(session, command, terminal=False):
-        """Apply a command to a session, updating its status if appropriate.
+        """Apply a legal command, updating status and wall-clock action timestamps.
 
-        Args:
-            session: Session instance.
-            command: the LRGP command string.
-            terminal: if True, the action ends the session (e.g., winning move).
-
-        Returns:
-            The new status string.
-
-        Raises:
-            IllegalTransition: if the command is not valid for the current status.
+        Explicit transitions take precedence: accept changes pending to active;
+        decline changes pending to declined; resign/draw_accept complete an active
+        session. For active same-status commands, terminal=True completes it.
+        The terminal flag does not override an explicit transition or a pending
+        challenge. Return the resulting status; raise IllegalTransition for an
+        unsupported current-status/command pair.
         """
         current = session.status
 
@@ -119,15 +115,15 @@ class SessionStateMachine:
 
     @staticmethod
     def check_expiry(session, ttl=None, now=None):
-        """Check if a session has expired based on its TTL.
+        """Expire an eligible pending or active session when its deadline has passed.
 
-        Args:
-            session: Session instance.
-            ttl: dict mapping status to TTL seconds, or None for defaults.
-            now: current timestamp, or None for time.time().
+        The deadline is last_action_at plus the status TTL plus the fixed one-hour
+        grace period. ``ttl`` may override either status TTL; ``now`` defaults to
+        time.time(). Equality with the deadline does not expire the session.
 
-        Returns:
-            True if the session has expired (and updates session.status).
+        Return True only when this call changes the status to expired and updates
+        updated_at. Already expired, completed, declined or unknown statuses return
+        False. This method does not remove the session.
         """
         if session.status in (STATUS_COMPLETED, STATUS_EXPIRED, STATUS_DECLINED):
             return False

@@ -1,9 +1,9 @@
-"""LRGP Four in a Row — compact gravity moves with both-side validation.
+"""LRGP Four in a Row: compact gravity moves with both-side validation.
 
-The wire carries only the selected column, a one-based move number, and the
-sender's terminal claim.  Both peers reconstruct the same 7-column by 6-row
-board locally; board snapshots and next-turn identities are never transmitted
-on move actions.
+Each move carries the selected column, a one-based move number and the
+sender's terminal claim, plus the winner identity hash for a winning move.
+Both peers reconstruct the 7-column by 6-row board locally; move actions
+do not transmit board snapshots or the next-turn identity.
 """
 
 import os
@@ -431,7 +431,12 @@ class FourInARowApp(GameBase):
         return "{} {}".format(prefix, command)
 
     def upsert_session(self, record, now=None):
-        """Hydrate only a complete, semantically consistent game record."""
+        """Validate restored board, participant metadata and lifecycle before storing.
+
+        This checks consistency of the supplied snapshot, not an authenticated
+        move history. Existing expired records have stale draw offers cleared;
+        records that expire during hydration are normalized afterward too.
+        """
         session = record if isinstance(record, Session) else Session.from_dict(record)
         # Historical records may already have crossed their expiry boundary
         # before Four-specific normalization existed. Clear only that stale

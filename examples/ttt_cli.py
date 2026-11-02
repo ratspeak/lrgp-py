@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Two-peer Tic-Tac-Toe over LXMF using Reticulum.
+"""Send one Tic-Tac-Toe challenge through LXMF using Reticulum.
 
-Requires: pip install lrgp[rns]
-
-This creates two local identities and plays TTT over actual LXMF messages.
+From this repository in a virtual environment: pip install -e ".[rns]"
+Creates two ephemeral identities and ./lxmf_x plus ./lxmf_o storage, using
+normal Reticulum configuration. This is a transport demonstration, not a full
+game client. Delivery needs a working path; a timeout is not a successful send.
 """
 
 import sys
@@ -17,14 +18,12 @@ try:
     import LXMF
 except ImportError:
     print("This example requires RNS and LXMF.")
-    print("Install with: pip install lrgp[rns]")
+    print('Install from this repository with: pip install -e ".[rns]"')
     sys.exit(1)
 
-from lrgp.apps.tictactoe import TicTacToeApp
 from lrgp.transport import LrgpTransport
 from lrgp.envelope import pack_envelope
-from lrgp.router import register, dispatch_incoming
-from lrgp.constants import CMD_CHALLENGE, CMD_ACCEPT, CMD_MOVE
+from lrgp.constants import CMD_CHALLENGE
 
 
 def main():
@@ -44,13 +43,16 @@ def main():
     router_x = LXMF.LXMRouter(identity=id_x, storagepath="./lxmf_x")
     router_o = LXMF.LXMRouter(identity=id_o, storagepath="./lxmf_o")
 
+    # The bridge expects each identity to expose its registered LXMF source
+    # destination. The destination hash is distinct from the identity hash.
+    id_x.destination = router_x.register_delivery_identity(id_x)
+    id_o.destination = router_o.register_delivery_identity(id_o)
+    print("Player X LXMF: {}".format(id_x.destination.hash.hex()))
+    print("Player O LXMF: {}".format(id_o.destination.hash.hex()))
+
     # Create LRGP transports
     transport_x = LrgpTransport(router_x, id_x)
     transport_o = LrgpTransport(router_o, id_o)
-
-    # Register TTT app
-    app = TicTacToeApp()
-    register(app)
 
     received = []
 
@@ -64,21 +66,22 @@ def main():
     session_id = os.urandom(8).hex()
     envelope = pack_envelope("ttt", 1, CMD_CHALLENGE, session_id, {})
     print("\nX sends challenge...")
-    transport_x.send(id_o.hash.hex(), envelope,
+    transport_x.send(id_o.destination.hash.hex(), envelope,
                      "[LRGP TTT] Sent a challenge!")
 
-    # Wait for delivery
-    time.sleep(2)
-
-    if received:
-        print("\nChallenge delivered successfully!")
-        print("Envelope: {}".format(received[0][0]))
-    else:
-        print("\nWaiting for delivery...")
-        time.sleep(5)
-
-    print("\nDemo complete. In a full app, the game would continue interactively.")
+    # Wait for the authenticated receive callback, not merely queue admission.
+    deadline = time.monotonic() + 7
+    while not received and time.monotonic() < deadline:
+        time.sleep(0.1)
+    if not received:
+        print("\nNo challenge received before timeout; check the Reticulum path.")
+        return 1
+    print("\nChallenge received with a validated LXMF signature.")
+    print("Envelope: {}".format(received[0][0]))
+    print("A full game must pass received envelopes to LrgpRouter with the")
+    print("authenticated sender and receiving local identity.")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

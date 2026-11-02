@@ -35,15 +35,16 @@ def is_canonical_session_id(session_id):
 
 
 def pack_envelope(app_id, version, command, session_id, payload=None, nonce=None):
-    """Build an LRGP envelope dict.
+    """Build and validate an LRGP envelope dict.
 
     Args:
-        nonce: optional 8-byte bytes object. If ``None`` (default) a fresh
-            CSPRNG nonce is generated. Pass a fixed value to build
-            deterministic test vectors.
+        nonce: optional 8-byte bytes or bytearray. None generates a fresh
+            CSPRNG nonce; bytearray is copied to bytes. A fixed value is useful
+            for deterministic test vectors.
 
     Returns:
-        dict with keys "a", "c", "s", "p", "n".
+        dict with keys "a", "c", "s", "p", "n". A supplied payload dict is
+        retained by reference, so callers can still mutate it afterward.
     """
     if nonce is None:
         nonce = generate_nonce()
@@ -63,10 +64,13 @@ def pack_envelope(app_id, version, command, session_id, payload=None, nonce=None
 
 
 def validate_envelope(envelope):
-    """Validate the canonical five-field LRGP envelope and wire budget.
+    """Validate the five-field LRGP envelope and its re-encoded wire budget.
 
-    This is intentionally structural. Whether an app, version, or action is
-    supported belongs to the router, which has the registered manifest.
+    Return the same dict after checking outer fields and the 200-byte packed
+    limit. This is structural: supported app/version/action checks belong to
+    the router, while application payload semantics belong to the game.
+    Already-decoded dicts cannot reveal duplicate keys discarded by an earlier
+    decoder; use an appropriate MessagePack decoder at the input boundary.
     """
     if not isinstance(envelope, dict):
         raise InvalidEnvelope("Envelope is not a dict")
@@ -120,13 +124,11 @@ def validate_envelope(envelope):
 
 
 def validate_envelope_size(envelope):
-    """Check that the packed envelope fits within ENVELOPE_MAX_PACKED.
+    """Measure the supplied value's MessagePack encoding against ENVELOPE_MAX_PACKED.
 
-    Returns:
-        int: packed size in bytes.
-
-    Raises:
-        EnvelopeTooLarge: if packed size exceeds limit.
+    This helper does not validate the envelope schema or the complete LXMF
+    message budget. Return the packed size in bytes. Raise EnvelopeTooLarge
+    above the limit, or InvalidEnvelope if a value cannot be encoded.
     """
     try:
         packed = packb(envelope)
@@ -152,7 +154,12 @@ def pack_to_bytes(envelope):
 
 
 def unpack_from_bytes(data):
-    """Decode exactly one canonical LRGP envelope, rejecting trailing bytes."""
+    """Decode one LRGP envelope, reject trailing bytes and validate its fields.
+
+    The size check uses the decoded value's re-encoding. It is not a raw-input
+    length or decoder-allocation bound; callers handling untrusted streams
+    must bound the input before calling this helper.
+    """
     if not isinstance(data, (bytes, bytearray, memoryview)):
         raise InvalidEnvelope("Packed envelope must be bytes-like")
     raw = bytes(data)
@@ -180,16 +187,13 @@ def pack_lxmf_fields(envelope):
 
 
 def unpack_envelope(fields):
-    """Extract and validate an LRGP envelope from LXMF fields.
+    """Extract and validate an LRGP envelope from an LXMF fields dict.
 
-    Args:
-        fields: dict of LXMF fields (keyed by field ID).
+    Return the envelope, or None when the custom type is not LRGP. A non-map
+    fields value, binary-encoded LRGP marker or malformed LRGP envelope raises
+    InvalidEnvelope; an oversized envelope raises EnvelopeTooLarge.
 
-    Returns:
-        dict: the envelope, or None if not an LRGP message.
-
-    Raises:
-        InvalidEnvelope: if fields indicate LRGP but envelope is malformed.
+    This helper does not authenticate an LXMF sender or validate a signature.
     """
     if not isinstance(fields, dict):
         raise InvalidEnvelope("LXMF fields must be a map")
@@ -210,10 +214,10 @@ def unpack_envelope(fields):
 
 
 def parse_app_version(app_ver_string):
-    """Split 'app_id.version' into (app_id, version_int).
+    """Split the final dot in 'app_id.version' into (app_id, version_int).
 
-    Returns:
-        tuple: (app_id: str, version: int)
+    Require a nonempty app name and canonical decimal version from 1 through
+    2**32-1. The app-name character grammar is checked by validate_envelope.
     """
     if not isinstance(app_ver_string, str) or "." not in app_ver_string:
         raise InvalidEnvelope("Invalid app.version format: {!r}".format(app_ver_string))
@@ -227,12 +231,13 @@ def parse_app_version(app_ver_string):
 
 
 def measure_content_size(title, content, fields):
-    """Measure total packed LXMF content size.
+    """Measure a MessagePack [timestamp, title, content, fields] value.
 
-    Simulates the LXMF packing: [timestamp, title, content, fields_dict].
-
-    Returns:
-        int: total packed size in bytes.
+    Uses the current timestamp and the supplied value types, replacing falsey
+    title/content with empty strings and falsey fields with an empty dict.
+    This does not perform LXMessage's text-to-binary conversion or include
+    address/signature framing. Measure the final LXMF representation when
+    checking a transport budget.
     """
     import time
     payload = [time.time(), title or "", content or "", fields or {}]
