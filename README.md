@@ -4,9 +4,12 @@ Python implementation of the **Lightweight Reticulum Gaming Protocol (LRGP)** â€
 
 LRGP carries game actions in LXMF custom fields over any reachable Reticulum path. The built-in games are turn-based. Each packed game envelope is limited to 200 bytes; title, fallback text, stamps and the rest of LXMF add overhead. The transport chooses packet or Link delivery for the complete message.
 
-This checkout declares **0.4.0** and includes three built-in apps. Tic-Tac-Toe and **Four in a Row**
-are dependency-free; Chess is available through the optional `chess`
-dependency.
+This checkout declares **0.4.0** and includes eighteen built-in apps. Tic-Tac-Toe, Four in a Row, Checkers,
+and the new **Hex**, **Gomoku**, **Reversi**, **Dots and Boxes**,
+**Mancala**, **Ultimate Tic-Tac-Toe**, **Go**, **Battleship**, **Quoridor**,
+**Nine Men's Morris**, **Breakthrough**, **Amazons**, **Pente**, and **Rock
+Paper Scissors** apps are dependency-free; Chess is available through the
+optional `chess` dependency.
 
 ## Quick Start
 
@@ -28,6 +31,9 @@ python examples/ttt_local.py
 
 # Inspect the built-in Four in a Row manifest (no extra dependency)
 python -c "from lrgp.apps import FourInARowApp; print(FourInARowApp().get_manifest())"
+
+# Inspect the built-in Checkers manifest (no extra dependency)
+python -c "from lrgp.apps import CheckersApp; print(CheckersApp().get_manifest())"
 
 # Walk Scholar's Mate locally
 python examples/chess_local.py
@@ -64,6 +70,54 @@ board snapshot nor a turn identity is sent with a move. A winning move alone
 adds `"w"`, set to the authenticated mover.
 
 Use the game router to construct canonical payloads from local intent. The wire sketch above is explanatory; participant identifiers come from authenticated transport metadata, and transport sizing must cover the complete LXMF message.
+
+Checkers uses `checkers.1`. Its move intent is a space-separated square path
+such as `{"m": "a5 c3 e1"}`; the canonical wire move is
+`{"m": "a5 c3 e1", "n": 12, "x": ""}`. Each peer replays the path history to
+rebuild the board, so neither the board nor the next turn is sent. See
+[docs/checkers.md](docs/checkers.md).
+
+Hex (`hex.1`), Gomoku (`gomoku.1`), and Reversi (`reversi.1`) share one wire
+contract: a move intent is a single square such as `{"m": "h8"}` (Hex also
+accepts `{"m": "swap"}` as White's first move) and the wire move is
+`{"m": "h8", "n": 0, "x": ""}`, plus `"w"` on a win. Dots and Boxes
+(`dots_and_boxes.1`) and Mancala (`mancala.1`) use the same contract with a
+line (`{"m": "c3h"}`) or a pit letter (`{"m": "d"}`) as the move; a player who
+completes a box or ends in their store simply moves again. See
+[docs/placement-games.md](docs/placement-games.md).
+
+The newer single-token games use the same contract; SPEC.md Appendix G
+defines each one. Ultimate Tic-Tac-Toe (`ultimate_ttt.1`) moves are a square
+such as `{"m": "e5"}` on its 9x9 board. Go (`go.1`) moves are a point such as
+`{"m": "e5"}` or `{"m": "pass"}`.
+
+Battleship (`battleship.1`) is the first game with hidden information. Each
+player commits to a fleet with a SHA-256 hash of the fleet and a random salt
+(`{"h": ...}` on challenge and accept); a shot `{"s": "e5", "a": "h", ...}`
+carries the answer to the opponent's last shot, and both fleets are revealed
+at the end so each side checks the other's answers. The local intents are
+`{"f": fleet, "k": salt}` (both optional) to challenge or accept, `{"s": "e5"}`
+to shoot, and `{}` to concede or reveal. SPEC.md Appendix H defines it.
+
+Quoridor (`quoridor.1`) moves step the pawn (`{"m": "e2"}`) or place a wall
+(`{"m": "c3h"}`, `{"m": "c3v"}`).
+
+Nine Men's Morris (`morris.1`) moves place a piece (`{"m": "d2"}`) or slide it
+(`{"m": "d2-d3"}`), with any removal after an `x` (`{"m": "d2-d3xg7"}`).
+
+Breakthrough (`breakthrough.1`) moves are a step written as two squares, such
+as `{"m": "a2b3"}`.
+
+Amazons (`amazons.1`) moves slide an amazon and shoot an arrow, written as
+`{"m": "d1d7/g7"}`.
+
+Pente (`pente.1`) moves are a square on its 19x19 board, such as `{"m":
+"j10"}`.
+
+Rock Paper Scissors (`rps.1`) is a first-to-three match. The leader commits to
+each choice with a SHA-256 hash (`{"h": ...}`), the follower answers in the
+open (`{"c": "p"}`), and the leader reveals the choice and salt with its next
+commitment (`{"c": "r", "k": ..., "h": ...}`).
 
 ### Replay protection
 
@@ -122,6 +176,22 @@ src/lrgp/
   store.py         # SQLite persistence
   transport.py     # LXMF bridge (optional, requires lrgp[rns])
   apps/
+    checkers.py    # Checkers (English draughts, square-path wire format)
+    _placement.py  # Shared engine for the single-token games below
+    hex.py         # Hex (11x11, swap rule)
+    gomoku.py      # Gomoku (15x15 freestyle)
+    reversi.py     # Reversi (8x8, automatic passing)
+    dots_and_boxes.py # Dots and Boxes (5x5 boxes, extra turns)
+    mancala.py     # Mancala (Kalah, six pits of four seeds)
+    ultimate_ttt.py # Ultimate Tic-Tac-Toe (nine small boards)
+    go.py          # Go (9x9, area scoring, superko)
+    battleship.py  # Battleship (10x10, committed fleets)
+    quoridor.py    # Quoridor (9x9, ten walls each)
+    morris.py      # Nine Men's Morris (flying at three)
+    breakthrough.py # Breakthrough (8x8, diagonal captures)
+    amazons.py     # Amazons (10x10, queen moves and arrows)
+    pente.py       # Pente (19x19, pair captures)
+    rps.py         # Rock Paper Scissors (first to three, committed choices)
     four_in_a_row.py # Four in a Row (7x6 gravity, reconstructed state)
     tictactoe.py   # Tic-Tac-Toe reference game
     chess.py       # Chess (python-chess engine, UCI wire format; lrgp[chess])
